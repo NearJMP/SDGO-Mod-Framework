@@ -2,12 +2,17 @@
 #include "oledb_session.h"
 
 namespace sdgo::friend_fix {
+// Storage may be wider than the legacy 20-character name column. The owned
+// query and native encoder still enforce the existing wire-name limits.
+// Keep the Unicode type and minimum width checks; unbounded columns stay rejected.
+inline constexpr const wchar_t* kPilotNameCollationQuery =
+    L"SELECT ISNULL((SELECT collation_name FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.tbl_Account_Pilot',N'U') AND name=N'f_pilot' AND system_type_id=231 AND max_length>=40),N'')";
 inline bool Prepare(Session& db,const std::wstring& expectedDatabase,const std::wstring& gameDatabase=L"") {
     std::wstring database;
     Need(db.String(L"SELECT CASE WHEN DB_ID("+Literal(expectedDatabase)+L")=DB_ID() THEN N'1' ELSE N'0' END",database),"friend database identity unavailable");
     if(database!=L"1")return false;
     std::wstring nameCollation;
-    Need(db.String(L"SELECT ISNULL((SELECT collation_name FROM sys.columns WHERE object_id=OBJECT_ID(N'dbo.tbl_Account_Pilot',N'U') AND name=N'f_pilot' AND system_type_id=231 AND max_length=40),N'')",nameCollation),"native pilot-name collation unavailable");
+    Need(db.String(kPilotNameCollationQuery,nameCollation),"native pilot-name collation unavailable");
     Need(!nameCollation.empty(),"native pilot-name column layout differs");
     std::wstring signature;
     Need(db.String(L"SELECT CASE WHEN COUNT(*)=5 AND SUM(CASE WHEN system_type_id=56 AND max_length=4 AND is_output=CASE WHEN parameter_id<=3 THEN 0 ELSE 1 END THEN 1 ELSE 0 END)=5 THEN N'1' ELSE N'0' END FROM sys.parameters WHERE object_id=OBJECT_ID(N'dbo.sp_FriendsList',N'P') AND parameter_id>0",signature));
