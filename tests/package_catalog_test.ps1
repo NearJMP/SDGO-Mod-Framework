@@ -102,6 +102,17 @@ try {
     Check-Package $hangarZip ($baseMods + @('hangar_manager'))
     $storageZip = Invoke-Package 'Full' 'storage-claim' (Join-Path $work 'storage')
     Check-Package $storageZip ($baseMods + @('storage_claim'))
+    $appearanceZip = Invoke-Package 'Full' 'unit-appearance' (Join-Path $work 'unit-appearance')
+    Check-Package $appearanceZip ($baseMods + @('friend_unit_gift_client','friend_unit_gift_server','unit_appearance_client','unit_appearance_server'))
+    $appearanceArchive = [IO.Compression.ZipFile]::OpenRead($appearanceZip)
+    try {
+        foreach ($required in @('client/sdgo/mods/friend_unit_gift_client/friend_unit_gift_client.dll','server/sdgo/mods/friend_unit_gift_server/friend_unit_gift_server.dll','server/sdgo/mods/unit_appearance_server/layers_schema.sql')) {
+            if (-not $appearanceArchive.GetEntry($required)) { throw "Unit appearance feature package lacks $required" }
+        }
+        foreach ($forbidden in @('client/sdgo/mods/appearance_probe/appearance_probe.dll','client/sdgo/mods/rgb_paint_client/rgb_paint_client.dll','server/sdgo/mods/rgb_paint_server/rgb_paint_server.dll','client/sdgo/mods/surface_decal_client/surface_decal_client.dll','server/sdgo/mods/surface_decal_server/surface_decal_server.dll','tools/game_test.py')) {
+            if ($appearanceArchive.GetEntry($forbidden)) { throw "Unit appearance feature package contains unrelated or conflicting runtime $forbidden" }
+        }
+    } finally { $appearanceArchive.Dispose() }
     $rewardZip = Invoke-Package 'Full' 'battle-rewards' (Join-Path $work 'rewards')
     Check-Package $rewardZip ($baseMods + @('battle_rewards'))
     $rewardArchive = [IO.Compression.ZipFile]::OpenRead($rewardZip)
@@ -112,7 +123,7 @@ try {
         if ($rewardArchive.GetEntry('frp/install_frp.ps1')) { throw 'Reward-only package unexpectedly contains the FRP toolkit' }
     } finally { $rewardArchive.Dispose() }
     $fullZip = Invoke-Package 'Full' '' (Join-Path $work 'full')
-    Check-Package $fullZip ($baseMods + @('ace_ai','ace_ai_server','newcomer_protection','capsule_catalog','capsule_price_probe','match_ai','pvp_ai','battle_ai','battle_ai_server','mission_ai','mission_behavior','mission_behavior_server','coop_ai','room_random','room_random_client','all_maps','unit_catalog','unit_catalog_server','map_catalog','map_catalog_server','room_titles','room_titles_agent','room_titles_server','battle_rewards','daily_rewards','operator_catalog','operator_catalog_server','ai_catalog','ai_dialogue','net_probe','net_route','agent_udp_pool','shop_catalog','shop_localization','hangar_capacity','hangar_manager','storage_claim','collection_capsule','game_test_client','game_test_server','fps_limit','friend_unit_gift_client','friend_unit_gift_server','oc_custom_client','oc_custom_server','oc_custom_battle','announcements','login_showcase'))
+    Check-Package $fullZip ($baseMods + @('ace_ai','ace_ai_server','newcomer_protection','capsule_catalog','capsule_price_probe','match_ai','pvp_ai','battle_ai','battle_ai_server','mission_ai','mission_behavior','mission_behavior_server','coop_ai','room_random','room_random_client','all_maps','unit_catalog','unit_catalog_server','map_catalog','map_catalog_server','room_titles','room_titles_agent','room_titles_server','battle_rewards','daily_rewards','operator_catalog','operator_catalog_server','ai_catalog','ai_dialogue','net_probe','net_route','agent_udp_pool','shop_catalog','shop_localization','hangar_capacity','hangar_manager','storage_claim','collection_capsule','game_test_client','game_test_server','fps_limit','friend_unit_gift_client','friend_unit_gift_server','oc_custom_client','oc_custom_server','oc_custom_battle','announcements','login_showcase','unit_appearance_client','unit_appearance_server','appearance_probe'))
     $dailyZip = Invoke-Package 'Full' 'daily-rewards' (Join-Path $work 'daily')
     Check-Package $dailyZip ($baseMods + @('daily_rewards'))
     $dailyFolder = Join-Path $work 'daily-unpacked'

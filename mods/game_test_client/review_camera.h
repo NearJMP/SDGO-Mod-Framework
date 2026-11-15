@@ -19,6 +19,7 @@ public:
         enabled_=api->SettingInt(mod,"BattleReviewCamera",0)!=0;
         const int seconds=api->SettingInt(mod,"BattleReviewCameraSeconds",6);
         holdMs_=static_cast<uint32_t>(seconds>=1 && seconds<=120 ? seconds:6)*1000u;
+        const int pilot=api->SettingInt(mod,"BattleReviewPilot",0);pilot_=pilot>0?static_cast<uint32_t>(pilot):0;
         if (enabled_) api->Log(mod,SDGO_LOG_INFO,"review camera: follows one AI unit for %u s at a time",holdMs_/1000u);
     }
     bool Enabled() const { return enabled_; }
@@ -26,10 +27,29 @@ public:
     // Main thread, after the native app update. Either snapshot may be absent.
     void Tick(bool inBattle,const SdgoPvpAiClientSnapshotV1* pvp,const SdgoMissionAiClientSnapshotV1* mission) {
         if (!enabled_) return;
-        if (!inBattle) { current_=0; return; }
+        if (!inBattle) { current_=0;reviewSince_=0; return; }
         uint8_t* um=nullptr; uint8_t* camera=nullptr;
         if (!Manager(um) || !battle_ai::native::detail::ReadPointer(um,kUmCamera,camera) ||
             !battle_ai::native::detail::Readable(camera+kCameraTarget,sizeof(void*))) return;
+        if(pilot_) {
+            if(!reviewSince_)reviewSince_=GetTickCount();
+            if(!pilotObject_)pilotObject_=reinterpret_cast<PilotObjectFn>(api_->Symbol(mod_,"um.object_id_from_pilot"));
+            uint8_t* target=nullptr;const bool remote=(GetTickCount()-reviewSince_)/holdMs_%2!=0;
+            if(remote && pilotObject_) {
+                const auto id=pilotObject_(um,pilot_);target=Alive(um,id);
+                uint32_t actual=0;if(!target||!battle_ai::native::detail::Read(target,0x2b68,actual)||actual!=pilot_){
+                    if(api_&&GetTickCount()-reviewLog_>=4000){reviewLog_=GetTickCount();api_->Log(mod_,SDGO_LOG_INFO,"review camera pilot unavailable requested=%lu object=%lu observed=%lu",pilot_,id,actual);}return;}
+            }else if(!battle_ai::native::detail::ReadPointer(um,kUmLocalPlayer,target))return;
+            uint8_t* present=nullptr;battle_ai::native::detail::ReadPointer(camera,kCameraTarget,present);
+            if(target&&present!=target){
+                *reinterpret_cast<uint8_t**>(camera+kCameraTarget)=target;
+                using Reset=void(__thiscall*)(void*,float);Reset reset=nullptr;uint8_t* table=nullptr;
+                if(battle_ai::native::detail::ReadPointer(camera,0,table)&&battle_ai::native::detail::Read(table,21*sizeof(void*),reset)&&
+                   reinterpret_cast<uintptr_t>(reset)-reinterpret_cast<uintptr_t>(api_->host_base)==0x976f0)reset(camera,1.f);
+                if(api_&&GetTickCount()-reviewLog_>=1000){reviewLog_=GetTickCount();api_->Log(mod_,SDGO_LOG_INFO,"review camera observing %s pilot=%lu",remote?"remote":"local",pilot_);}
+            }
+            return;
+        }
         uint32_t ids[24]{}; bool engaged[24]{}; unsigned count=0;
         if (pvp)
             for (unsigned i=0;i<pvp->bot_count && i<12 && count<24;++i) {
@@ -77,6 +97,7 @@ private:
     static constexpr size_t kCameraTarget=0x344;
     static constexpr size_t kUnitHp=0x38;
     using FindObjectFn=uint8_t*(__thiscall*)(void*,uint32_t);
+    using PilotObjectFn=uint32_t(__thiscall*)(void*,uint32_t);
 
     bool Manager(uint8_t*& um) {
         if (!manager_) manager_=reinterpret_cast<void**>(api_->Symbol(mod_,"game.unit_manager"));
@@ -94,7 +115,8 @@ private:
 
     const SdgoApi* api_=nullptr; SdgoMod* mod_=nullptr;
     bool enabled_=false;
-    uint32_t holdMs_=6000,current_=0,since_=0;
+    uint32_t holdMs_=6000,current_=0,since_=0,pilot_=0,reviewSince_=0,reviewLog_=0;
     void** manager_=nullptr;
     FindObjectFn find_=nullptr;
+    PilotObjectFn pilotObject_=nullptr;
 };

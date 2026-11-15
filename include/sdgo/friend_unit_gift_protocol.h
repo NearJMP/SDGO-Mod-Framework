@@ -47,7 +47,10 @@ enum class Command : std::uint16_t {
 // the transport treats them as read-only and never enters the uncertain state.
 inline constexpr std::uint16_t kExtensionCommandFirst = 0x1000;
 inline constexpr std::uint16_t kExtensionCommandLast = 0x10FF;
-inline constexpr std::size_t kMaximumExtensionPayloadBytes = 1024;
+// The native carrier size is unchanged. Use only its common request/reply
+// envelope budget; older small extension commands keep identical wire bytes.
+inline constexpr std::size_t kMaximumExtensionPayloadBytes =
+    kCarrierBytes-kReplyEnvelopeOffset-kEnvelopeHeaderBytes;
 
 inline bool IsExtensionCommand(Command command) noexcept {
     const auto value = static_cast<std::uint16_t>(command);

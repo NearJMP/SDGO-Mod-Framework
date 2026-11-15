@@ -13,7 +13,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from manager import distribution
+from manager import dependencies as framework_dependencies, distribution
 
 CATEGORIES = {
     "fixes": {"en": "Core fixes", "zh-CN": "基础修复"},
@@ -87,10 +87,10 @@ def read_catalog(root: Path, *, check_build: bool = True) -> dict:
                 or scope != distribution.PUBLIC):
             raise ValueError(f"Invalid category/channel/activation in {path}")
         manager_path = path.parent / "manager.json"
-        distribution.require_public(
-            path.read_bytes(),
-            manager_path.read_bytes() if manager_path.is_file() else None,
-        )
+        manager_raw = manager_path.read_bytes() if manager_path.is_file() else None
+        distribution.require_public(path.read_bytes(), manager_raw)
+        registration = distribution.manager_json(manager_raw)
+        framework_dependencies.validate(registration)
         if toolkit not in {"", "frp"}:
             raise ValueError(f"Unknown package toolkit in {path}")
         dll = cfg.get("dll", f"{mod_id}.dll")
@@ -136,6 +136,8 @@ def read_catalog(root: Path, *, check_build: bool = True) -> dict:
                      "hosts": list_value(cfg.get("hosts", "")), "version": cfg.get("version", "0"),
                      "target": next(iter(targets)), "enabled_by_default": bool(enabled),
                      "files": files, "runtime_files": runtime_files, "config_files": configs,
+                     "dependencies": registration.get("dependencies", {}),
+                     "provides": registration.get("provides", {}),
                      "guide": f"docs/{feature}.md",**({'manifest':path.name}if path.name!='mod.ini'else{})})
     if not mods:
         raise ValueError("No bundled mod manifests found")
@@ -196,6 +198,28 @@ def validate_readmes(root: Path, catalog: dict) -> None:
             raise ValueError(f"Unknown README catalog entry: {filename}")
 
 
+def _dependency_candidates(mod: dict, rule: dict, candidates: list[tuple[int, dict]]) -> list[tuple[int, dict]]:
+    """Resolve the same host/role scope that the Manager enforces at runtime."""
+    scope = rule.get("scope", "host")
+    if scope == "host":
+        hosts = set(mod["hosts"])
+        return [(index, candidate) for index, candidate in candidates
+                if hosts.intersection(candidate["hosts"])]
+    if scope == "client":
+        return [(index, candidate) for index, candidate in candidates
+                if candidate["target"] == "client"]
+    host_prefix = {"battle": "BattleServer", "agent": "AgentServer", "world": "WorldServer"}[scope]
+    return [(index, candidate) for index, candidate in candidates
+            if any(host.split("-", 1)[0] == host_prefix for host in candidate["hosts"])]
+
+
+def _compatible_dependency(candidate: dict, rule: dict) -> bool:
+    if "minimum" in rule and framework_dependencies.version(candidate["version"]) < framework_dependencies.version(rule["minimum"]):
+        return False
+    capability = rule.get("capability")
+    return not capability or candidate.get("provides", {}).get(capability, 0) == rule.get("capability_version", 1)
+
+
 def select_catalog(catalog: dict, profile: str = "full", features: list[str] | None = None) -> dict:
     if profile not in {"full", "base"}:
         raise ValueError(f"Unknown profile: {profile}")
@@ -203,8 +227,34 @@ def select_catalog(catalog: dict, profile: str = "full", features: list[str] | N
     unknown = requested - catalog["features"].keys()
     if unknown:
         raise ValueError(f"Unknown features: {', '.join(sorted(unknown))}")
-    mods = [mod for mod in catalog["mods"] if (
-        (profile == "full" and not requested) or mod["category"] == "fixes" or mod["feature"] in requested)]
+
+    indexed = list(enumerate(catalog["mods"]))
+    by_id: dict[str, list[tuple[int, dict]]] = {}
+    by_feature: dict[str, list[int]] = {}
+    for index, mod in indexed:
+        by_id.setdefault(mod["id"], []).append((index, mod))
+        by_feature.setdefault(mod["feature"], []).append(index)
+    selected = {index for index, mod in indexed if (
+        (profile == "full" and not requested) or mod["category"] == "fixes" or mod["feature"] in requested)}
+
+    pending = list(selected)
+    while pending:
+        index = pending.pop()
+        mod = catalog["mods"][index]
+        for rule in mod.get("dependencies", {}).get("required", []):
+            candidates = _dependency_candidates(mod, rule, by_id.get(rule["id"], []))
+            compatible = [(candidate_index, candidate) for candidate_index, candidate in candidates
+                          if _compatible_dependency(candidate, rule)]
+            if not compatible:
+                raise ValueError(f"Missing compatible required dependency: {mod['id']} -> {rule['id']}")
+            dependency_features = {candidate["feature"] for _, candidate in compatible}
+            for dependency_feature in dependency_features:
+                for candidate_index in by_feature[dependency_feature]:
+                    if candidate_index not in selected:
+                        selected.add(candidate_index)
+                        pending.append(candidate_index)
+
+    mods = [mod for index, mod in indexed if index in selected]
     selected_features = {mod["feature"] for mod in mods}
     return {**catalog, "profile": "custom" if requested else profile,
             "features": {key: value for key, value in catalog["features"].items() if key in selected_features}, "mods": mods}

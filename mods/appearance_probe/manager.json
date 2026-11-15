@@ -1,0 +1,10 @@
+{
+  "schema_version":1,"distribution":"public","id":"appearance_probe",
+  "title":"机体外观原生验收探针","category":"development","hosts":["client"],
+  "description":"仅在隔离 GameTest 任务中检查原生页面、确认保存和真实绘制；普通游戏中不运行，不提供另一套玩家界面。",
+  "settings":[
+    {"id":"runtime","key":"Runtime","label":"观察实际外观组件","type":"boolean","default":true,"file":"mod.ini","section":"settings","audience":"developer","activation":"restart_required"},
+    {"id":"expect_companion","key":"ExpectCompanion","label":"要求真实服务端确认","type":"boolean","default":true,"file":"mod.ini","section":"settings","audience":"developer","activation":"restart_required"},
+    {"id":"save_test","key":"SaveTest","label":"新建 20 层并验证扣费及重发（隔离测试）","type":"boolean","default":false,"file":"mod.ini","section":"settings","audience":"developer","activation":"restart_required"}
+  ]
+}

@@ -25,17 +25,95 @@ DATABASES=('GameRank','GDClan','GDCommon','GDGameLogView','GDLogDB','GDLongTermG
 DEFAULT_IMAGE='mcr.microsoft.com/mssql/server@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718'
 
 
-def ordered_native_services(selected):
-    """Order only the XML/database-selected hosts by native dependencies."""
-    def rank(spec):
+NATIVE_TABLE_READY_MARKER=b'Table Download OK.. Time Procedure Ready..'
+MAX_NATIVE_STARTUP_DELAY_MS=600_000
+
+
+def native_startup_entries(startup_xml):
+    """Return enabled native hosts in the launcher's declared order."""
+    entries=[];seen=set()
+    for index,row in enumerate(ET.parse(startup_xml).getroot().findall('Process')):
+        if row.attrib.get('Run','').strip().lower()!='true':continue
+        raw_path=row.attrib.get('Path','').strip()
+        if not raw_path:raise RuntimeError('Enabled native startup entry has no Path')
+        folder=Path(raw_path.replace('\\','/')).parent.name
+        if not folder:raise RuntimeError('Enabled native startup entry has no host folder')
+        if folder in seen:raise RuntimeError('Enabled native startup host is duplicated: '+folder)
+        delay_text=row.attrib.get('Delay','0').strip() or '0'
+        if not re.fullmatch(r'[0-9]+',delay_text):
+            raise RuntimeError('Native startup Delay must be a non-negative integer: '+folder)
+        delay_ms=int(delay_text)
+        if delay_ms>MAX_NATIVE_STARTUP_DELAY_MS:
+            raise RuntimeError('Native startup Delay is unreasonably large: '+folder)
+        seen.add(folder);entries.append({'folder':folder,'delay_ms':delay_ms,'xml_index':index})
+    return entries
+
+
+def native_startup_plan(selected,entries):
+    """Keep the XML/DB-selected set while restoring XML order and pacing."""
+    by_folder={}
+    for spec in selected:
         folder=spec['folder']
-        if folder=='StoreServer':return 0
-        if folder=='ChattingServer':return 1
-        if folder.startswith('AgentServer'):return 2
-        if folder.startswith('BattleServer'):return 3
-        if folder=='WorldServer':return 5
-        return 4
-    return sorted(selected,key=rank)
+        if folder in by_folder:raise RuntimeError('Selected native host is duplicated: '+folder)
+        by_folder[folder]=spec
+    plan=[]
+    for entry in entries:
+        spec=by_folder.pop(entry['folder'],None)
+        if spec is None:continue
+        planned=dict(spec)
+        planned['startup_delay_ms']=entry['delay_ms']
+        planned['startup_xml_index']=entry['xml_index']
+        plan.append(planned)
+    if by_folder:
+        raise RuntimeError('Selected native host is absent from startup XML: '+','.join(sorted(by_folder)))
+    return plan
+
+
+def native_peer_exits(ready_services):
+    exited=[]
+    for process,row in ready_services:
+        code=process.poll()
+        if code is not None:exited.append((row['folder'],code))
+    return exited
+
+
+def check_native_wait(work,ready_services,purpose):
+    if (work/'stop.request').exists():raise InterruptedError('Owned backend stop requested')
+    exited=native_peer_exits(ready_services)
+    if exited:
+        raise RuntimeError('Native peer exited during '+purpose+': '+
+            ','.join(name+'='+str(code) for name,code in exited))
+
+
+def wait_native_listener(process,row,ready_services,work,target_ip,deadline):
+    while True:
+        check_native_wait(work,ready_services,'listener readiness')
+        if (target_ip,row['port']) in listeners(process.pid):return
+        if time.monotonic()>deadline:
+            raise RuntimeError('Copied native service not ready: '+row['folder'])
+        time.sleep(.2)
+
+
+def wait_native_table_ready(process,row,ready_services,work,deadline):
+    folder=Path(row['exe']).parent;offsets=row['startup_log_offsets']
+    while True:
+        check_native_wait(work,ready_services,'table readiness')
+        for log in (folder/'LogData').glob('*.txt'):
+            with log.open('rb') as stream:
+                stream.seek(offsets.get(str(log),0))
+                if NATIVE_TABLE_READY_MARKER in stream.read():return
+        if time.monotonic()>deadline:
+            raise RuntimeError('Native Battle table loading did not complete: '+row['folder'])
+        time.sleep(.5)
+
+
+def wait_native_launch_delay(delay_ms,launched_at,ready_services,work):
+    deadline=launched_at+delay_ms/1000
+    while True:
+        check_native_wait(work,ready_services,'startup pacing')
+        remaining=deadline-time.monotonic()
+        if remaining<=0:return
+        time.sleep(min(.2,remaining))
 
 
 class BackendBackgroundProcess(WindowsBackgroundProcess):
@@ -645,9 +723,8 @@ def serve(work,client_run,lifetime,stage,startup_xml,startup_timeout,host_pilot_
                 time.sleep(.5)
         # Select native channels before requiring or installing their payload.
         # Inactive folders are not participants in this sealed server job.
-        configured={Path(row.attrib['Path'].replace('\\','/')).parent.name
-            for row in ET.parse(startup_xml).getroot().findall('Process')
-            if row.attrib.get('Run','').lower()=='true'}
+        startup_entries=native_startup_entries(startup_xml)
+        configured={row['folder'] for row in startup_entries}
         db=sql_connect(private)
         try:
             channels=[{'port':int(r[0]),'server_id':int(r[1])} for r in db.cursor().execute(
@@ -657,15 +734,18 @@ def serve(work,client_run,lifetime,stage,startup_xml,startup_timeout,host_pilot_
         selected=[spec for spec in manifest['services'] if spec['folder'] in configured and
             (not spec['folder'].startswith('Battle') or spec['port'] in enabled_ports)]
         if native_local:
-            selected=ordered_native_services(selected)
-        skipped=[spec['folder'] for spec in manifest['services'] if spec not in selected]
+            selected=native_startup_plan(selected,startup_entries)
+        selected_folders={spec['folder'] for spec in selected}
+        skipped=[spec['folder'] for spec in manifest['services'] if spec['folder'] not in selected_folders]
         login_port=int(client['plan']['login_port'])
         assert_listener_endpoints_free(
             target_ip,[spec['port'] for spec in selected]+[login_port]
         )
         write(work/'launch-selection.json',{'native_xml':str(startup_xml),'database_channels':channels,
-            'selected':[{'folder':x['folder'],'port':x['port']} for x in selected],'skipped':skipped})
-        emit('launch_selection',selected=len(selected),skipped=skipped)
+            'native_order':'ServerStartUp.xml','selected':[{'folder':x['folder'],'port':x['port'],
+                'delay_ms':x.get('startup_delay_ms',0),'xml_index':x.get('startup_xml_index')}
+                for x in selected],'skipped':skipped})
+        emit('launch_selection',selected=len(selected),skipped=skipped,native_order='ServerStartUp.xml')
         stage_server=stage/'server'
         payload_receipt=[]
         for owned_spec in selected:
@@ -738,20 +818,12 @@ def serve(work,client_run,lifetime,stage,startup_xml,startup_timeout,host_pilot_
                     if re.match(r'(?i)^[a-z]:[\\/]',value) and not Path(value).resolve().is_relative_to(work):
                         raise RuntimeError('Copied Mod still points outside its owned backend: '+copied_config.parent.name+'/'+key)
 
+        native_tables_deadline=(time.monotonic()+600+
+            sum(spec.get('startup_delay_ms',0) for spec in selected)/1000)
         for spec in selected:
+            if native_local:check_native_wait(work,ready_services,'startup sequencing')
             exe=Path(spec['exe']);folder=exe.parent
             if not exe.is_relative_to(work/'Server') or game_test.sha256(exe)!=spec['sha256']: raise RuntimeError('Copied service identity changed')
-            if native_local and spec['folder']=='WorldServer':
-                # Creating peer processes is not enough: World can connect and
-                # begin its initial stream before their native listeners exist.
-                peers_deadline=time.monotonic()+startup_timeout
-                for peer,peer_row in ready_services:
-                    while (target_ip,peer_row['port']) not in listeners(peer.pid):
-                        if (work/'stop.request').exists():raise InterruptedError('Owned backend stop requested')
-                        if peer.poll() is not None or time.monotonic()>peers_deadline:
-                            raise RuntimeError('Native peer listener not ready before World: '+peer_row['folder'])
-                        time.sleep(.2)
-                emit('native_peer_listeners_ready',count=len(ready_services))
             env=child_environment()
             if spec['folder'].startswith('Battle') and not fps_suite:
                 job=folder/'sdgo/gametest'
@@ -824,18 +896,38 @@ def serve(work,client_run,lifetime,stage,startup_xml,startup_timeout,host_pilot_
                 log_offsets={str(p):p.stat().st_size for p in (folder/'LogData').glob('*.txt')}
                 with console.open('ab') as output:
                     process=BackendBackgroundProcess([str(exe)],cwd=folder,env=env,stdout=output,stderr=subprocess.STDOUT,run_id=client['run_id'])
-                owned_processes.append(process)
+                launched_at=time.monotonic();owned_processes.append(process)
                 state_row={'folder':spec['folder'],'pid':process.pid,'exe':str(exe),
                     'desktop':process.desktop_path,'attempt':attempt}
+                if native_local:
+                    state_row.update(port=spec['port'],startup_log_offsets=log_offsets,
+                        startup_delay_ms=spec['startup_delay_ms'],startup_xml_index=spec['startup_xml_index'])
                 state['services'].append(state_row);publish('starting_'+spec['folder'])
                 if native_local:
-                    # Original hosts connect to each other asynchronously.
-                    # Start the copied set first, then verify every listener;
-                    # waiting for each host before starting its peers causes
-                    # minutes of avoidable startup delay under concurrent load.
+                    # Match the original launcher's XML order and pacing. A
+                    # listening Battle socket is not table readiness: admit the
+                    # next Battle only after this launch writes the native marker.
                     ready_services.append((process,state_row))
-                    state_row['port']=spec['port']
-                    state_row['startup_log_offsets']=log_offsets
+                    wait_native_listener(process,state_row,ready_services,work,target_ip,
+                        time.monotonic()+startup_timeout)
+                    proof=process.verify_background()
+                    if not (proof['verified'] and proof['private_desktop_verified'] and proof['foreground_safe']):
+                        raise RuntimeError('Copied native service background policy failed: '+state_row['folder'])
+                    state_row['quiet_proof']=proof
+                    emit('service_ready',folder=state_row['folder'],pid=process.pid,
+                        port=state_row['port'],attempt=attempt,readiness='listener')
+                    if state_row['folder'].startswith('Battle'):
+                        emit('native_table_wait_started',folder=state_row['folder'],pid=process.pid)
+                        wait_native_table_ready(process,state_row,ready_services,work,native_tables_deadline)
+                        state_row['native_tables_ready']=True
+                        publish('tables_ready_'+state_row['folder'])
+                        emit('native_tables_ready',folder=state_row['folder'],pid=process.pid,
+                            readiness='native_log_marker')
+                    wait_native_launch_delay(state_row['startup_delay_ms'],launched_at,
+                        ready_services,work)
+                    emit('native_startup_paced',folder=state_row['folder'],pid=process.pid,
+                        delay_ms=state_row['startup_delay_ms'],xml_index=state_row['startup_xml_index'],
+                        elapsed_ms=int((time.monotonic()-launched_at)*1000))
                     break
                 deadline=time.monotonic()+startup_timeout
                 while (target_ip,spec['port']) not in listeners(process.pid):
@@ -858,43 +950,17 @@ def serve(work,client_run,lifetime,stage,startup_xml,startup_timeout,host_pilot_
         if native_local:
             deadline=time.monotonic()+startup_timeout
             for process,row in ready_services:
-                while (target_ip,row['port']) not in listeners(process.pid):
-                    if (work/'stop.request').exists():raise InterruptedError('Owned backend stop requested')
-                    if process.poll() is not None or time.monotonic()>deadline:
-                        raise RuntimeError('Copied native service not ready: '+row['folder'])
-                    time.sleep(.2)
+                wait_native_listener(process,row,ready_services,work,target_ip,deadline)
                 proof=process.verify_background()
                 if not (proof['verified'] and proof['private_desktop_verified'] and proof['foreground_safe']):
                     raise RuntimeError('Copied native service background policy failed: '+row['folder'])
                 row['quiet_proof']=proof
-                emit('service_ready',folder=row['folder'],pid=process.pid,port=row['port'],attempt=1)
-            # Native Battle opens TCP before its asynchronous table loader
-            # enables Time Procedure. A socket alone can yield 0FBC on Start.
-            # Bind the readiness marker to bytes written by this launch only.
-            tables_deadline=time.monotonic()+600
-            for process,row in ready_services:
-                if not row['folder'].startswith('Battle'):continue
-                folder=Path(row['exe']).parent
-                offsets=row['startup_log_offsets']
-                while True:
-                    exited=[(peer_row['folder'],peer.poll()) for peer,peer_row in ready_services if peer.poll() is not None]
-                    if exited:
-                        raise RuntimeError('Native peer exited during table readiness: '+','.join(name+'='+str(code) for name,code in exited))
-                    loaded=False
-                    for log in (folder/'LogData').glob('*.txt'):
-                        with log.open('rb') as stream:
-                            stream.seek(offsets.get(str(log),0))
-                            loaded=loaded or b'Table Download OK.. Time Procedure Ready..' in stream.read()
-                    if loaded:break
-                    if (work/'stop.request').exists():raise InterruptedError('Owned backend stop requested')
-                    if process.poll() is not None or time.monotonic()>tables_deadline:
-                        raise RuntimeError('Native Battle table loading did not complete: '+row['folder'])
-                    time.sleep(.5)
-                row['native_tables_ready']=True
-                publish('tables_ready_'+row['folder'])
-                emit('native_tables_ready',folder=row['folder'],pid=process.pid)
+                if row['folder'].startswith('Battle') and not row.get('native_tables_ready'):
+                    raise RuntimeError('Native Battle reached final validation without table readiness: '+row['folder'])
+                emit('native_service_revalidated',folder=row['folder'],pid=process.pid,port=row['port'])
         deadline=time.monotonic()+30
         while not any((target_ip,login_port) in listeners(process.pid) for process,_ in ready_services):
+            if native_local:check_native_wait(work,ready_services,'client login listener readiness')
             if any(process.poll() is not None for process,_ in ready_services) or time.monotonic()>deadline:
                 raise RuntimeError('Owned native client login listener was not ready')
             time.sleep(.2)

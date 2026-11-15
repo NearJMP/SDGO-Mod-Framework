@@ -49,19 +49,58 @@ def valid_backup_rows(root: Path) -> list[dict]:
 
 
 class NativeServiceOrderTest(unittest.TestCase):
-    def test_dependencies_precede_battle_without_changing_selection(self):
-        names=['WorldServer','BattleServer6','AgentServer3','StoreServer','AgentServer1','ChattingServer']
-        selected=[{'folder':name,'sentinel':index} for index,name in enumerate(names)]
-        ordered=backend.ordered_native_services(selected)
-        self.assertEqual([s['folder'] for s in ordered],
-                         ['StoreServer','ChattingServer','AgentServer3','AgentServer1','BattleServer6','WorldServer'])
-        self.assertEqual([s['folder'] for s in selected],names)
-        self.assertEqual({id(s) for s in ordered},{id(s) for s in selected})
+    def startup(self,root,rows):
+        path=root/'ServerStartUp.xml'
+        body=['<Processes>']
+        for folder,run,delay in rows:
+            delay_attribute='' if delay is None else f' Delay="{delay}"'
+            body.append(f'<Process Run="{str(run)}"{delay_attribute} '
+                        f'Path=".\\Server\\{folder}\\host.exe" Parameters="" />')
+        body.append('</Processes>')
+        path.write_text(''.join(body),encoding='utf-8')
+        return path
 
-    def test_inactive_channels_are_never_added(self):
-        selected=[{'folder':'BattleServer6'},{'folder':'AgentServer3'},{'folder':'WorldServer'}]
-        self.assertEqual([s['folder'] for s in backend.ordered_native_services(selected)],
-                         ['AgentServer3','BattleServer6','WorldServer'])
+    def test_xml_order_and_delay_control_the_selected_native_plan(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            startup=self.startup(root,[
+                ('WorldServer',True,7000),('BattleServer8',False,5000),
+                ('AgentServer3',True,2000),('StoreServer',True,None),
+                ('BattleServer6',True,5000),('ChattingServer',True,1000)])
+            names=['BattleServer6','StoreServer','WorldServer','AgentServer3']
+            selected=[{'folder':name,'sentinel':index} for index,name in enumerate(names)]
+            plan=backend.native_startup_plan(selected,backend.native_startup_entries(startup))
+            self.assertEqual([s['folder'] for s in plan],
+                             ['WorldServer','AgentServer3','StoreServer','BattleServer6'])
+            self.assertEqual([s['startup_delay_ms'] for s in plan],[7000,2000,0,5000])
+            self.assertEqual([s['startup_xml_index'] for s in plan],[0,2,3,4])
+            self.assertEqual([s['folder'] for s in selected],names)
+            self.assertTrue(all('startup_delay_ms' not in s for s in selected))
+
+    def test_inactive_or_database_unselected_channels_are_never_added(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            startup=self.startup(Path(temporary),[
+                ('BattleServer1',True,5000),('BattleServer2',True,5000),
+                ('BattleServer8',False,5000),('WorldServer',True,5000)])
+            selected=[{'folder':'WorldServer'},{'folder':'BattleServer2'}]
+            plan=backend.native_startup_plan(selected,backend.native_startup_entries(startup))
+            self.assertEqual([s['folder'] for s in plan],['BattleServer2','WorldServer'])
+
+    def test_invalid_or_unbounded_delay_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            for delay in ('-1','soon',str(backend.MAX_NATIVE_STARTUP_DELAY_MS+1)):
+                with self.subTest(delay=delay):
+                    startup=self.startup(root,[('WorldServer',True,delay)])
+                    with self.assertRaisesRegex(RuntimeError,'Delay'):
+                        backend.native_startup_entries(startup)
+
+    def test_duplicate_enabled_host_fails_closed(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            startup=self.startup(Path(temporary),[
+                ('WorldServer',True,0),('WorldServer',True,0)])
+            with self.assertRaisesRegex(RuntimeError,'duplicated'):
+                backend.native_startup_entries(startup)
 
 
 class FakeProcess:
@@ -91,6 +130,50 @@ class FakeProcess:
         if self.returncode is None:
             raise RuntimeError("still running")
         self.closed += 1
+
+
+class NativeReadinessGateTests(unittest.TestCase):
+    def battle(self,root):
+        folder=root/'BattleServer2';log=folder/'LogData/start.txt'
+        log.parent.mkdir(parents=True);log.write_bytes(b'old-startup\n')
+        process=FakeProcess()
+        row={'folder':'BattleServer2','pid':process.pid,'exe':str(folder/'BattleServer.exe'),
+             'port':9302,'startup_log_offsets':{str(log):log.stat().st_size}}
+        return process,row,log
+
+    def test_table_gate_requires_a_fresh_native_marker_not_a_listener(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);process,row,log=self.battle(root)
+            log.write_bytes(backend.NATIVE_TABLE_READY_MARKER)
+            row['startup_log_offsets'][str(log)]=log.stat().st_size
+            with mock.patch.object(backend,'listeners',return_value={('127.0.0.1',9302)}) as listener, \
+                    mock.patch.object(backend.time,'monotonic',side_effect=[0,2]), \
+                    mock.patch.object(backend.time,'sleep'):
+                with self.assertRaisesRegex(RuntimeError,'table loading did not complete'):
+                    backend.wait_native_table_ready(process,row,[(process,row)],root,1)
+            listener.assert_not_called()
+
+    def test_table_gate_accepts_only_bytes_after_this_launch_offset(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);process,row,log=self.battle(root)
+            with log.open('ab') as stream:stream.write(backend.NATIVE_TABLE_READY_MARKER)
+            backend.wait_native_table_ready(process,row,[(process,row)],root,1)
+
+    def test_table_gate_fails_on_owned_peer_exit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);process,row,_=self.battle(root)
+            process.returncode=0xC0000005
+            with self.assertRaisesRegex(RuntimeError,'peer exited during table readiness'):
+                backend.wait_native_table_ready(process,row,[(process,row)],root,10)
+
+    def test_table_and_delay_waits_honor_stop_request(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);process,row,_=self.battle(root)
+            (root/'stop.request').write_text('{}')
+            with self.assertRaises(InterruptedError):
+                backend.wait_native_table_ready(process,row,[(process,row)],root,10)
+            with self.assertRaises(InterruptedError):
+                backend.wait_native_launch_delay(5000,0,[(process,row)],root)
 
 
 class BackendSafetyTests(unittest.TestCase):

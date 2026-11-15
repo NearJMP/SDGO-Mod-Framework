@@ -770,3 +770,10 @@ following the PvP AI and mission wingmen pages, and register them in
 `docs/feature-demos.json`. Do not create a separate demonstration gallery page. Release notes select
 only demonstrations applicable to the programme package, retain Chinese and
 English descriptions, and publish media separately from programme ZIPs.
+
+
+### Unit appearance pages
+
+Use `--pages-only --page-group appearance` to enter through the native UI and check server reads, editor visibility and cancellation. This requires GameTest client 0.1.45, `appearance_probe` and the companion appearance components. The probe runs only inside an explicit native GameTest and uses real controls, resources and communication. Prepare an existing test unit and sticker stock before enabling real-save cases; missing stock or a missing server never counts as a saved design.
+
+Developer recordings can enable `BattleReviewCamera`. `BattleReviewPilot=0` cycles through AI actors; a positive test-pilot ID alternates the local and selected human views every `BattleReviewCameraSeconds`. Camera changes do not replace real joins, Ready, battle admission, rendering and settlement evidence. An actor outside the frustum may produce no draws; this alone proves neither disappearance nor visibility.

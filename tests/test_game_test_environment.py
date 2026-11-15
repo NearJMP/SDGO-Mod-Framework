@@ -314,6 +314,12 @@ class CandidateAdmissionTests(unittest.TestCase):
         from tests.test_game_test import game_test
         self.gt=game_test
 
+    def transform_sdk(self, version='0.1.39'):
+        path=self.fixture.stage/'client/sdgo/mods/game_test_client/mod.ini'
+        config=self.gt.read_ini(path)
+        config['mod']['version']=version
+        self.gt.write_ini(path,config)
+
     def test_explicit_mod_resources_and_symbols_are_sealed_before_execution(self):
         f=self.fixture;source=f.stage/'client/sdgo/mods/candidate_fix'
         (source/'resources').mkdir(parents=True)
@@ -331,6 +337,7 @@ class CandidateAdmissionTests(unittest.TestCase):
         with self.assertRaises(self.gt.GameTestError):self.gt.verify_hashes(metadata)
 
     def test_roundtrip_scenario_is_explicit_and_manifest_hash_bound(self):
+        self.transform_sdk()
         run=self.fixture.prepare('roundtrip',play_unit_uid=17,apsalus_roundtrip=True)
         path=run/'client/sdgo/mods/game_test_client/mod.ini'
         self.assertEqual(self.gt.read_ini(path).get('settings','ApsalusRoundtrip'),'1')
@@ -340,6 +347,7 @@ class CandidateAdmissionTests(unittest.TestCase):
             self.fixture.prepare('incomplete-roundtrip',apsalus_roundtrip=True,bootstrap_only=True)
 
     def test_generic_unit_transform_and_battle_capture_are_explicit_and_hash_bound(self):
+        self.transform_sdk()
         run=self.fixture.prepare('unit-roundtrip',play_unit_uid=17,unit_transform_roundtrip=True,capture_native_frames=True)
         path=run/'client/sdgo/mods/game_test_client/mod.ini'
         self.assertEqual(self.gt.read_ini(path).get('settings','UnitTransformRoundtrip'),'1')
@@ -353,6 +361,7 @@ class CandidateAdmissionTests(unittest.TestCase):
                 self.fixture.prepare('invalid-unit-roundtrip',**options)
 
     def test_directed_unit_transform_path_is_explicit_bounded_and_hash_bound(self):
+        self.transform_sdk()
         run=self.fixture.prepare('directed-transforms',play_unit_uid=17,unit_transform_steps=3)
         manifest=run/'client/sdgo/mods/game_test_client/mod.ini';settings=self.gt.read_ini(manifest)['settings']
         self.assertEqual('1',settings['UnitDirectedTransforms']);self.assertEqual('3',settings['UnitTransformSteps'])
@@ -366,6 +375,16 @@ class CandidateAdmissionTests(unittest.TestCase):
             with self.subTest(row=row),self.assertRaises(self.gt.GameTestError):self.fixture.prepare('bad-directed-path',**row)
         ordinary=self.fixture.prepare('ordinary-path');config=self.gt.read_ini(ordinary/'client/sdgo/mods/game_test_client/mod.ini')
         self.assertEqual('0',config['settings']['UnitDirectedTransforms'])
+
+    def test_transform_paths_refuse_an_observer_without_the_native_capability(self):
+        self.transform_sdk('0.1.38')
+        for flags in ({'apsalus_roundtrip':True},
+                      {'unit_transform_roundtrip':True},
+                      {'unit_transform_steps':3}):
+            with self.subTest(flags=flags),self.assertRaisesRegex(
+                    self.gt.GameTestError,'require GameTest client 0.1.39'):
+                self.fixture.prepare('old-transform-sdk',play_unit_uid=17,**flags)
+        self.assertFalse((self.fixture.root/'old-transform-sdk').exists())
 
     def test_gameplay_fps_cap_is_bound_to_client_settings_and_observer(self):
         import xml.etree.ElementTree as ET
