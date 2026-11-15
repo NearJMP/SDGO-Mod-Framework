@@ -143,4 +143,38 @@ void Editing() {
     Check(editor.Acknowledge(4,Reply::rejected,conflict)&&!editor.Dirty(),"rejection restores authoritative state");
 }
 }
-int main() {Geometry();Editing();std::cout << checks << " checks passed\n";}
+void CornersAndLayers(){
+    Mesh fold{{{-2,-1,0},{0,-1,0},{0,1,0},{-2,1,0},{0,-1,-2},{0,1,-2}},
+        {{{{0,1,2}}},{{{0,2,3}}},{{{1,4,5}}},{{{1,5,2}}}}};
+    Placement p;Check(MakePlacement(fold,{0,{{.125,.375,.5}},0},77,4,{1,0,0},2,1,.05,p)==Result::ok,"anchor beside a right-angle armor edge");
+    Patch wrapped,flat;Check(Project(fold,77,4,p,flat)==Result::ok,"legacy planar placement remains available");
+    Check(ProjectWrapped(fold,77,4,p,wrapped)==Result::ok,"unfold across a right-angle edge");
+    bool side=false;for(const auto& v:wrapped.vertices){side=side||v.triangle>=2;Check(v.uv.x>=0&&v.uv.x<=1&&v.uv.y>=0&&v.uv.y<=1,"wrapped UVs stay within sticker");}
+    const auto physicalArea=[](const Patch& patch){double total=0;
+        for(std::size_t i=0;i<patch.vertices.size();i+=3){const auto a=patch.vertices[i].position,b=patch.vertices[i+1].position,c=patch.vertices[i+2].position;
+            const double x=(b.y-a.y)*(c.z-a.z)-(b.z-a.z)*(c.y-a.y),y=(b.z-a.z)*(c.x-a.x)-(b.x-a.x)*(c.z-a.z),z=(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
+            total+=std::hypot(x,y,z)/2;}return total;};
+    Check(side&&physicalArea(wrapped)>physicalArea(flat)+.5&&Near(physicalArea(wrapped),2),"corner keeps the sticker's intrinsic area rather than disappearing or stretching");
+    ValidatePatch(fold,wrapped);
+    const auto count=wrapped.vertices.size();Limits limits;limits.outputTriangles=1;
+    Check(ProjectWrapped(fold,77,4,p,wrapped,limits)==Result::budgetExceeded&&wrapped.vertices.size()==count,"corner budget refusal preserves prior geometry");
+    Check(ProjectWrapped(fold,78,4,p,wrapped)==Result::wrongGeometry,"another model cannot borrow corner anchors");
+    unsigned removed=0,kept=0;bool variation=false;
+    for(unsigned y=0;y<64;++y)for(unsigned x=0;x<64;++x){
+        const double u=(x+.5)/64,v=(y+.5)/64;const auto a=WearCoverage(u,v,300,17),b=WearCoverage(u,v,600,17);
+        Check(WearCoverage(u,v,0,17)==1&&WearCoverage(u,v,1000,17)==0,"wear endpoints preserve or remove original ink");
+        Check(a>=b&&a==WearCoverage(u,v,300,17),"wear is deterministic and monotonically removes ink");
+        if(b==0)++removed;if(b==1)++kept;variation=variation||b!=WearCoverage(u,v,600,18);
+    }
+    Check(removed>400&&kept>400&&variation,"wear contains actual scratches and islands, not global transparency");
+    Appearance a;a.unitSerial=20;a.unitType=100;a.revision=1;
+    a.slots[0].sticker=42;a.slots[1].sticker=42;Editor editor;Check(editor.Open(a)&&editor.Place(0,p),"duplicate equipped stickers retain distinct native slots");
+    Check(editor.SetWrap(0,true)&&editor.SetWear(0,450,123)&&editor.MoveLayer(0,2),"layer and wear changes are editable parameters");
+    Check(editor.Preview().order==std::array<std::uint8_t,3>{{1,2,0}}&&editor.Preview().slots[0].sticker==42&&editor.Preview().slots[1].sticker==42,"reordering never swaps inventory identities");
+    Check(!editor.SetWear(0,1001,1)&&!editor.SetWear(1,1,1)&&!editor.MoveLayer(2,0),"invalid wear and absent/unpositioned stickers are refused");
+    auto bad=editor.Preview();bad.order={{0,0,2}};Check(!Valid(bad),"duplicate layers are invalid");
+    Appearance proposal;Check(editor.BeginSave(1,proposal)&&!editor.MoveLayer(0,0)&&!editor.SetWear(0,1,1),"in-flight style save cannot be edited");
+    auto authority=proposal;++authority.revision;Check(editor.Acknowledge(1,Reply::saved,authority),"server confirms exact style and order");
+    Check(editor.ResetPosition(0)&&editor.Preview().styles[0].wear==0&&!editor.Preview().styles[0].wrap,"native-position reset also restores native ink rendering");
+}
+int main() {Geometry();Editing();CornersAndLayers();std::cout << checks << " checks passed\n";}

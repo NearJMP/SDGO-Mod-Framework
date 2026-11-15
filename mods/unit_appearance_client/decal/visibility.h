@@ -13,7 +13,7 @@ inline bool OpaqueNode(bool hidden,unsigned flags){
 // A transparent lens elsewhere on that node must not veto an opaque patch.
 template<class ReadAlpha>
 bool OpaqueCoverage(const Patch& patch,const std::vector<std::uint32_t>& triangleGroups,
-                    unsigned groupCount,ReadAlpha readAlpha) {
+                    unsigned groupCount,ReadAlpha readAlpha,float minimumAlpha=.999f) {
     if(patch.vertices.empty()||patch.vertices.size()%3||!groupCount||groupCount>256)return false;
     std::array<bool,256> covered{};
     for(const auto& vertex:patch.vertices){
@@ -25,7 +25,7 @@ bool OpaqueCoverage(const Patch& patch,const std::vector<std::uint32_t>& triangl
     for(unsigned group=0;group<groupCount;++group){
         if(!covered[group])continue;
         float alpha=0;
-        if(!readAlpha(group,alpha)||!std::isfinite(alpha)||alpha<0.999f)return false;
+        if(!readAlpha(group,alpha)||!std::isfinite(alpha)||alpha<minimumAlpha||alpha>1)return false;
     }
     return true;
 }

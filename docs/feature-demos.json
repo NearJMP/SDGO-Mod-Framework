@@ -279,20 +279,20 @@
     {
       "id": "surface-decals",
       "path": "docs/surface-decals-demo.webp",
-      "since": "1.16.37",
+      "since": "1.16.44",
       "mods": [
         "unit_appearance_client",
         "unit_appearance_server"
       ],
-      "title_zh": "自由贴花：在原生纹章页放置、调整并保存",
-      "title_en": "Free surface stickers: place, adjust and save in the native emblem page",
+      "title_zh": "自由贴花：20 层管理、拐角贴合与可逆磨损预览",
+      "title_en": "Surface decals: twenty layers, connected armor corners and reversible wear",
       "guide_zh": "docs/unit-appearance.zh-CN.md",
       "guide_en": "docs/unit-appearance.md"
     },
     {
       "id": "rgb-paint",
       "path": "docs/rgb-paint-demo.webp",
-      "since": "1.16.37",
+      "since": "1.16.44",
       "mods": [
         "unit_appearance_client",
         "unit_appearance_server"

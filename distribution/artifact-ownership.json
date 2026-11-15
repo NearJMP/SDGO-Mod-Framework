@@ -163,6 +163,12 @@
       "target": "server",
       "purpose": "Generic cosmetic placement metadata schema; unit records and placement data remain on the selected server"
     },
+    "mods/unit_appearance_server/layers_schema.sql": {
+      "ownership": "framework",
+      "kind": "schema",
+      "target": "server",
+      "purpose": "Generic layered cosmetic schema and idempotent consumption receipts; player data remains server-side"
+    },
     "mods/unit_appearance_server/rgb_schema.sql": {
       "ownership": "framework",
       "kind": "schema",

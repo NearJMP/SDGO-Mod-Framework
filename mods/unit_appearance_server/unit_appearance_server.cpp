@@ -3,6 +3,7 @@
 #include "sdgo/friend_unit_gift_protocol.h"
 #include "sdgo/rgb_paint_protocol.h"
 #include "sdgo/surface_decal_protocol.h"
+#include "sdgo/layered_decal_wire.h"
 using sdgo::friend_unit_gift::ExtensionHandlerFn;
 ExtensionHandlerFn PrepareRgb(const SdgoApi*,SdgoMod*);
 ExtensionHandlerFn PrepareDecals(const SdgoApi*,SdgoMod*);
@@ -13,7 +14,7 @@ std::int32_t __cdecl Dispatch(void* user,std::uint32_t actor,std::uint16_t comma
     std::uint8_t* output,std::uint32_t capacity,std::uint32_t* produced){
     if(produced)*produced=0;
     const auto handler=(command==sdgo::rgb_paint::wire::get||command==sdgo::rgb_paint::wire::save)?rgb:
-        (command==sdgo::surface_decal::wire::get||command==sdgo::surface_decal::wire::save)?decals:nullptr;
+        (command>=sdgo::surface_decal::wire::get&&command<=sdgo::surface_decal::layers::wire::catalogue)?decals:nullptr;
     return handler?handler(user,actor,command,data,size,members,database,output,capacity,produced):
         static_cast<int>(sdgo::friend_unit_gift::WireStatus::invalid_argument);
 }
@@ -31,7 +32,7 @@ SDGO_MOD_ENTRY {
         const auto carrier=GetModuleHandleW(L"friend_unit_gift_server.dll");
         const auto registration=reinterpret_cast<sdgo::friend_unit_gift::RegisterExtensionFn>(GetProcAddress(carrier,SDGO_FRIEND_UNIT_GIFT_REGISTER_EXTENSION_EXPORT));
         const auto first=useDecals?sdgo::surface_decal::wire::get:sdgo::rgb_paint::wire::get;
-        const auto last=useRgb?sdgo::rgb_paint::wire::save:sdgo::surface_decal::wire::save;
+        const auto last=useRgb?sdgo::rgb_paint::wire::save:sdgo::surface_decal::layers::wire::catalogue;
         // Unassigned commands between the two existing pairs are rejected.
         if(!registration||!registration(first,last,&Dispatch,nullptr))return 0;
     }

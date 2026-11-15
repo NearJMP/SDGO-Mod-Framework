@@ -790,6 +790,19 @@
       "activation": "restart_required",
       "minimum": 0,
       "maximum": 120000
+    },
+    {
+      "id": "battle_review_pilot",
+      "key": "BattleReviewPilot",
+      "label": "指定测试玩家镜头编号（0 为 AI）",
+      "type": "integer",
+      "default": 0,
+      "minimum": 0,
+      "maximum": 2147483647,
+      "file": "mod.ini",
+      "section": "settings",
+      "audience": "developer",
+      "activation": "restart_required"
     }
   ],
   "presentation": "configurable",

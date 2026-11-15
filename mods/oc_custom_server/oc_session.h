@@ -72,7 +72,7 @@ inline std::int64_t Int64Or(const TextRow& row, std::size_t index, std::int64_t 
 
 class Session {
 public:
-    explicit Session(unsigned timeout_seconds) : timeout_seconds_(timeout_seconds) {}
+    explicit Session(unsigned timeout_seconds,bool large_text=false) : timeout_seconds_(timeout_seconds),large_text_(large_text) {}
 
     bool Open(void* connection) noexcept {
         ComPtr<ICommandText> native;
@@ -104,7 +104,7 @@ public:
             if (FAILED(next)) return false;
             if (rows.Get()) {
                 TextRows decoded;
-                if (!ReadRows(rows.Get(), &decoded)) return false;
+                if (large_text_?!ReadRows<4096>(rows.Get(),&decoded):!ReadRows<256>(rows.Get(),&decoded)) return false;
                 output->push_back(std::move(decoded));
             }
         }
@@ -137,13 +137,14 @@ private:
         return SUCCEEDED(command->SetCommandText(DBGUID_DBSQL, sql.c_str()));
     }
 
-    struct TextCell {
+    template<std::size_t Characters> struct TextCell {
         DBSTATUS status = DBSTATUS_E_UNAVAILABLE;
         DBLENGTH length = 0;
-        wchar_t value[256]{};
+        wchar_t value[Characters]{};
     };
 
-    static bool ReadRows(IRowset* rows, TextRows* output) noexcept {
+    template<std::size_t Characters> static bool ReadRows(IRowset* rows, TextRows* output) noexcept {
+        using Cell=TextCell<Characters>;
         ComPtr<IColumnsInfo> columns;
         auto hr = rows->QueryInterface(
             __uuidof(IColumnsInfo), reinterpret_cast<void**>(columns.Put()));
@@ -173,19 +174,19 @@ private:
         for (std::size_t index = 0; index < count; ++index) {
             auto& binding = bindings[index];
             binding.iOrdinal = static_cast<DBORDINAL>(index + 1);
-            binding.obStatus = static_cast<DBBYTEOFFSET>(index * sizeof(TextCell) + offsetof(TextCell, status));
-            binding.obLength = static_cast<DBBYTEOFFSET>(index * sizeof(TextCell) + offsetof(TextCell, length));
-            binding.obValue = static_cast<DBBYTEOFFSET>(index * sizeof(TextCell) + offsetof(TextCell, value));
+            binding.obStatus = static_cast<DBBYTEOFFSET>(index * sizeof(Cell) + offsetof(Cell, status));
+            binding.obLength = static_cast<DBBYTEOFFSET>(index * sizeof(Cell) + offsetof(Cell, length));
+            binding.obValue = static_cast<DBBYTEOFFSET>(index * sizeof(Cell) + offsetof(Cell, value));
             binding.dwPart = DBPART_STATUS | DBPART_LENGTH | DBPART_VALUE;
             binding.dwMemOwner = DBMEMOWNER_CLIENTOWNED;
             binding.eParamIO = DBPARAMIO_NOTPARAM;
-            binding.cbMaxLen = sizeof(TextCell::value);
+            binding.cbMaxLen = sizeof(Cell::value);
             binding.wType = DBTYPE_WSTR;
         }
         HACCESSOR handle = DB_NULL_HACCESSOR;
         hr = accessor->CreateAccessor(
             DBACCESSOR_ROWDATA, static_cast<DBCOUNTITEM>(count), bindings.data(),
-            static_cast<DBLENGTH>(count * sizeof(TextCell)), &handle, statuses.data());
+            static_cast<DBLENGTH>(count * sizeof(Cell)), &handle, statuses.data());
         if (FAILED(hr) || handle == DB_NULL_HACCESSOR ||
             std::any_of(statuses.begin(), statuses.end(),
                         [](DBBINDSTATUS status) { return status != DBBINDSTATUS_OK; })) {
@@ -193,7 +194,7 @@ private:
             return false;
         }
         bool success = true;
-        std::vector<TextCell> cells(count);
+        std::vector<Cell> cells(count);
         while (success) {
             DBCOUNTITEM fetched = 0;
             HROW* handles = nullptr;
@@ -206,7 +207,7 @@ private:
             } else if (!handles || fetched != 1 || output->size() >= 4096) {
                 success = false;
             } else {
-                std::fill(cells.begin(), cells.end(), TextCell{});
+                std::fill(cells.begin(), cells.end(), Cell{});
                 hr = rows->GetData(handles[0], handle, cells.data());
                 if (FAILED(hr)) {
                     success = false;
@@ -236,6 +237,7 @@ private:
     }
 
     unsigned timeout_seconds_ = 10;
+    bool large_text_ = false;
     ComPtr<IDBCreateCommand> factory_;
 };
 

@@ -66,7 +66,7 @@ Battle rules, AI, progression, rewards and interactions between players.
 | [Three enhancement systems, one client](docs/over-custom.md) <!-- catalog: `oc_custom_client`, `oc_custom_server`, `oc_custom_battle` --> | OC stat allocation (all six stats apply in OC battles, special included), challenges and resets; rooms choose OC, G改 2.0 or owner-provided G改 1.0 while existing custom-parts data is preserved separately |
 | [Newcomer protection](docs/newcomer-protection.md) <!-- catalog: `newcomer_protection` --> | Server-selected players receive configurable HP and ordinary weapon damage multipliers in missions and PvP; special attacks stay native and the roster stays private |
 | [Friend unit gifts (optional)](docs/friend-unit-gift.md) <!-- catalog: `friend_unit_gift_client`, `friend_unit_gift_server` --> | Right-click a friend (online or offline), pick a unit in unit management, and the friend accepts or returns it in Storage. Off until the owner enables it |
-| [Unit appearance (Beta)](docs/unit-appearance.md) <!-- catalog: `unit_appearance_client`, `unit_appearance_server` --> | Independent RGB paint and free sticker switches, native-page editing with RGB inventory input isolation, preserved colors and placements, and shared room/battle appearance including stickers on reflective armor |
+| [Unit appearance](docs/unit-appearance.md) <!-- catalog: `unit_appearance_client`, `unit_appearance_server` --> | Up to 20 layered stickers with corner wrapping, reversible scratched wear, inventory quotes and configurable consumption, plus independent RGB paint in native pages; shared room and battle appearance |
 | [Collection capsule](docs/collection-capsule.md) <!-- catalog: `collection_capsule` --> | Missing-unit activity machine with configurable price and limits, an owner exclusion list, and encyclopedia acquisition hints that follow the live pool; 15 per week by default |
 | [Battle contribution rewards](docs/battle-rewards.md) <!-- catalog: `battle_rewards` --> | Contribution GB/MB, configurable human multipliers and optional per-account gathering rewards |
 | [Daily double rewards](docs/daily-rewards.md) <!-- catalog: `daily_rewards` --> | Double battle GB and EXP in a daily window (default 18:00–22:00) |
@@ -156,7 +156,7 @@ Protocol analysis, troubleshooting and native automated tests for developers.
 |---|---|
 | [Packet logger](docs/net-probe.md) <!-- catalog: `net_probe` --> | Log the client's outgoing packets for protocol work |
 | [Capsule price probe (Experimental)](docs/capsule-price-probe.md) <!-- catalog: `capsule_price_probe` --> | Read-only log of capsule list price label refreshes |
-| [Native GameTest (Experimental)](docs/game-test.md) <!-- catalog: `game_test_client`, `game_test_server` --> | Native login, room entry, Ready, single-client and coordinated multiplayer battles, and page checks |
+| [Native GameTest (Experimental)](docs/game-test.md) <!-- catalog: `appearance_probe`, `game_test_client`, `game_test_server` --> | Native login, room entry, Ready, single-client and coordinated multiplayer battles, and page checks |
 
 ## Project documentation
 

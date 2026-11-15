@@ -40,7 +40,7 @@ target_include_directories(minhook PUBLIC third_party/minhook/include)
 add_library(sdgo_api INTERFACE)
 target_include_directories(sdgo_api INTERFACE include)
 
-add_library(sdgo_surface_decal STATIC core/surface_decal.cpp)
+add_library(sdgo_surface_decal STATIC core/surface_decal.cpp core/layered_decal.cpp)
 target_link_libraries(sdgo_surface_decal PUBLIC sdgo_api)
 add_library(sdgo_surface_decal_native STATIC core/surface_decal_native.cpp)
 target_link_libraries(sdgo_surface_decal_native PUBLIC sdgo_surface_decal)
@@ -92,6 +92,10 @@ if(BUILD_TESTING)
     target_link_libraries(surface_decal_protocol_test PRIVATE sdgo_surface_decal)
     sdgo_strict(surface_decal_protocol_test)
     add_test(NAME surface_decal_protocol_test COMMAND surface_decal_protocol_test)
+    add_executable(layered_decal_test tests/layered_decal_test.cpp)
+    target_link_libraries(layered_decal_test PRIVATE sdgo_surface_decal)
+    sdgo_strict(layered_decal_test)
+    add_test(NAME layered_decal_test COMMAND layered_decal_test)
     add_executable(surface_decal_sql_fixture tests/surface_decal_sql_fixture.cpp)
     target_link_libraries(surface_decal_sql_fixture PRIVATE sdgo_surface_decal)
     sdgo_strict(surface_decal_sql_fixture)
@@ -103,6 +107,12 @@ endif()
 # ---- loader shims: d3d9.dll next to GOnline.exe, winmm.dll next to BattleServer.exe --
 add_library(sdgo_rgb_paint STATIC core/rgb_paint.cpp core/rgb_paint_native.cpp)
 target_link_libraries(sdgo_rgb_paint PUBLIC sdgo_api)
+if(BUILD_TESTING)
+    add_executable(rgb_paint_sync_test tests/rgb_paint_sync_test.cpp)
+    target_link_libraries(rgb_paint_sync_test PRIVATE sdgo_rgb_paint user32)
+    sdgo_strict(rgb_paint_sync_test)
+    add_test(NAME rgb_paint_sync_test COMMAND rgb_paint_sync_test)
+endif()
 sdgo_strict(sdgo_rgb_paint)
 
 add_library(early_boot STATIC loader/common/early_boot.cpp loader/common/launch_gate.cpp)
@@ -2334,16 +2344,20 @@ if(BUILD_TESTING)
 endif()
 
 # One appearance runtime per host; independent native-page and storage components.
+sdgo_add_mod(appearance_probe
+    FILES symbols.fragment.ini
+    SOURCES tests/native_surface_decal_probe.cpp mods/unit_appearance_client/decal/native_ui.cpp
+    LIBS sdgo_surface_decal_native sdgo_surface_decal_render user32)
 sdgo_add_mod(unit_appearance_client
     SOURCES mods/unit_appearance_client/unit_appearance_client.cpp
             mods/unit_appearance_client/rgb/rgb_paint_client.cpp mods/unit_appearance_client/rgb/panel.cpp mods/unit_appearance_client/rgb/sync.cpp
-            mods/unit_appearance_client/decal/surface_decal_client.cpp mods/unit_appearance_client/decal/native_ui.cpp
+            mods/unit_appearance_client/decal/surface_decal_client.cpp mods/unit_appearance_client/decal/native_ui.cpp mods/unit_appearance_client/decal/textures.cpp
     LIBS sdgo_rgb_paint sdgo_surface_decal_native sdgo_surface_decal_render user32 comctl32 d3d9
     FILES symbols.fragment.ini)
 sdgo_add_mod(unit_appearance_server SERVER
-    SOURCES mods/unit_appearance_server/unit_appearance_server.cpp mods/unit_appearance_server/rgb/rgb_paint_server.cpp mods/unit_appearance_server/decal/surface_decal_server.cpp
+    SOURCES mods/unit_appearance_server/unit_appearance_server.cpp mods/unit_appearance_server/rgb/rgb_paint_server.cpp mods/unit_appearance_server/decal/surface_decal_server.cpp mods/unit_appearance_server/decal/layers_server.cpp
     LIBS sdgo_rgb_paint sdgo_surface_decal ole32 oleaut32 uuid
-    FILES rgb_schema.sql decal_schema.sql)
+    FILES rgb_schema.sql decal_schema.sql layers_schema.sql)
 
 if(BUILD_TESTING)
     foreach(role client server)

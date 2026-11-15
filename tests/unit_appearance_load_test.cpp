@@ -31,6 +31,7 @@ ExtensionHandlerFn PrepareDecals(const SdgoApi*,SdgoMod*){++fixture::decalLoads;
 #include "../mods/unit_appearance_client/unit_appearance_client.cpp"
 int LoadRgb(const SdgoApi*,SdgoMod*){++fixture::rgbLoads;return !fixture::failRgb;}
 int LoadDecals(const SdgoApi*,SdgoMod*){++fixture::decalLoads;return !fixture::failDecal;}
+int LoadInventoryProtection(const SdgoApi*,SdgoMod*){return 1;}
 void AbortRgbLoad(){++fixture::aborts;}
 void AbortDecalsLoad(){++fixture::aborts;}
 #endif
@@ -45,10 +46,10 @@ int main(){
 #ifdef APPEARANCE_SERVER
         assert(registrations==(r||d));
         if(r||d){
-            assert(first==(d?0x1020u:0x1030u));assert(last==(r?0x1031u:0x1021u));
+            assert(first==(d?0x1020u:0x1030u));assert(last==(r?0x1031u:0x1025u));
             std::uint32_t bytes=123;
-            for(unsigned command:{0x1020u,0x1021u,0x1022u,0x102fu,0x1030u,0x1031u}){
-                const bool active=(d&&(command==0x1020||command==0x1021))||(r&&(command==0x1030||command==0x1031));
+            for(unsigned command:{0x1020u,0x1021u,0x1022u,0x1023u,0x1024u,0x1025u,0x1026u,0x102fu,0x1030u,0x1031u}){
+                const bool active=(d&&command>=0x1020&&command<=0x1025)||(r&&(command==0x1030||command==0x1031));
                 assert((registered(nullptr,1,static_cast<std::uint16_t>(command),nullptr,0,nullptr,nullptr,nullptr,0,&bytes)==7)==active);
                 assert(bytes==0);
             }

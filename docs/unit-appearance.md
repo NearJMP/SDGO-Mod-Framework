@@ -1,4 +1,4 @@
-# Unit appearance (Beta)
+# Unit appearance
 
 [简体中文](unit-appearance.zh-CN.md) · [Feature index](../README.md)
 
@@ -6,7 +6,7 @@
 
 ## Installation and settings
 
-Select the Beta channel in Manager, install the client and World components and their communication dependencies, and enable Unit appearance. Select RGB paint and/or free stickers, save, and restart the corresponding programs when prompted. Communication uses the friend-unit-gift carrier; gifting itself can remain disabled.
+In Manager, install the client and World components and their communication dependencies, and enable Unit appearance. Select RGB paint and/or free stickers, save, and restart the corresponding programs when prompted. Communication uses the friend-unit-gift carrier; gifting itself can remain disabled.
 
 Imports and updates through the companion Manager migrate the old RGB/sticker enablement to the corresponding switches and archive the old programs outside loading directories. Existing colors, placements and revisions retain their original records. Disabling a component stops its editing and display without deleting data; enabling it restores the saved appearance. Enable the corresponding component on both client and World to edit and save.
 
@@ -23,18 +23,23 @@ Do not manually install the legacy DLLs alongside this module. Explicit conflict
 
 “原生涂装” returns to native palette controls. Changing stock paint invalidates the previous RGB configuration for that unit. Colors apply in the lobby, room, battle and transformed models of the same unit. Separate instances of the same model keep separate records. Native transparency, cloaking, textures and gloss remain controlled by the original materials.
 
-RGB mode owns clicks and drags on its controls and suspends mouse handling in the covered inventory, preventing accidental item drags. Gestures retain their release event outside the controls. Native inventory input resumes after switching to native paint and releasing the mouse. The preview area remains interactive. Client 0.1.2 supports this input isolation alongside OC and battle stickers on reflective armor, with World 0.1.0 compatibility.
+RGB mode owns clicks and drags on its controls and suspends mouse handling in the covered inventory, preventing accidental item drags. Gestures retain their release event outside the controls. Native inventory input resumes after switching to native paint and releasing the mouse. The preview area remains interactive. This input isolation coexists with OC.
 
 ## Free surface stickers
 
-![Place, adjust and confirm a sticker in the native emblem page](surface-decals-demo.webp)
+![Manage twenty layers, preview corner wrapping and restore worn ink in the native page](surface-decals-demo.webp)
 
-1. Equip stickers and finish the native save in the emblem page, then open “自由贴花位置”.
-2. Select a slot and “放置贴纸”, then click or drag with the left button. Right-button dragging rotates horizontally and tilts vertically; “旋转机体” also supports left-button rotation.
-3. Adjust sticker rotation and size. “恢复原位置” restores the selected slot's native fixed position.
-4. Select “保存位置”, review, then “确认保存位置” and wait for the server acknowledgement. “取消并返回” discards unsaved edits.
+1. Open “编辑自由贴花” on the native emblem page. Layers, Properties and the owned-sticker library share one panel; the model preview remains interactive.
+2. Select an eligible owned sticker and click the model to place it. Up to 20 independent layers are supported, separately from the three native equipment slots. Existing saved native-slot placements migrate to linked layers.
+3. Scroll, page or drag the layer list, or use Top / Up / Down / Bottom. Higher rows cover lower ones. Duplicate creates a new layer; Delete changes the draft. Individual visibility and the native-slot display can be toggled.
+4. Properties adjusts rotation, size, local scratched wear and scratch seed. Corner wrapping unfolds connected surfaces on the same rigid part. Returning wear to 0% restores the original ink without changing its asset. Left-click places; right-drag rotates and tilts. Orbit mode also supports left-drag.
+5. Request a save quote, review each sticker's required quantity and current stock, then confirm. Returning to editing costs nothing. Only the server acknowledgement completes the save. Cancel or leaving discards the draft.
 
-Stickers attach to the selected model part. Moving joints require separate placement on each part. Replacing a stock sticker invalidates that slot's previous anchor. Incompatible model forms or geometry fall back to native placement. Reflective armor supports saved placements in battle; transparent materials outside the sticker's footprint do not affect it. Hidden parts, transparent or fading surfaces under the sticker, and special blend/depth passes retain native sticker handling.
+In **Manager → Unit appearance (World)**, operators configure consumption and a 1–20 layer limit. By default, adding, duplicating or replacing a sticker costs one item per new layer. Transform, order, visibility and wear edits are free. Reusable mode still requires ownership, native equipment or a server unlock, plus native eligibility. Restart World after changing policy. Lower limits retain existing layers while preventing further increases above the limit.
+
+Inventory deduction, design revision and the durable confirmation receipt commit together. Replaying the same confirmation token cannot charge twice. After interrupted communication, resolve that request before treating a draft as saved. Both appearance components require 0.2.0 or later; communication dependencies are `friend_unit_gift_client` 0.1.11 and `friend_unit_gift_server` 0.1.4 or later. Viewers also need the enabled companion; old clients display only the native three slots.
+
+Wrapping stays on connected geometry within one rigid part, so moving joints need separate anchors. Native item replacements update linked layers and preserve independent layers. An incompatible form never borrows another geometry's anchor. Reflective armor is supported. Each projected material group follows its actual native opacity, including friendly-character fades and cloaking; hidden parts, zero opacity and special blend/depth passes remain hidden.
 
 ## Troubleshooting and AI handoff
 
@@ -44,10 +49,18 @@ Use the feature's Copy for AI or bug-report entry. Include client/World versions
 
 ## Developer notes
 
-`unit_appearance_client` keeps RGB material and sticker projection components separate internally and installs hooks only for enabled components. `unit_appearance_server` prepares all enabled components before one authenticated extension registration, then dispatches the original commands according to their switches. Unassigned commands inside the combined range return an invalid-argument result. The existing `dbo.sdgo_mod_rgb_paint` and `dbo.sdgo_mod_surface_decal` tables, wire formats, saved bytes and revision checks remain intact. Native records remain authoritative for ownership, stock colors and equipped stickers.
+`unit_appearance_client` keeps RGB material and sticker projection components separate internally and installs hooks only for enabled components. `unit_appearance_server` prepares all enabled components before one authenticated extension registration, then dispatches the original commands according to their switches. Unassigned commands inside the combined range return an invalid-argument result. Existing RGB and legacy decal records and commands remain compatible. Additional tables store independent designs, sticker unlocks and idempotent commit receipts. Native records remain authoritative for ownership, stock colors and equipped stickers.
 
 Rooms bind complete unit identities through actual player slots, allowing fewer player slots than visual-pool entries, and apply appearance after asynchronous loading. RGB retains dormant transformed-model identities. Sticker anchors record part, geometry, triangle and barycentric coordinates; identity is never guessed from model type or sticker matches. Native controls are resolved only after page activation and dialog visibility.
 
-Battle sticker visibility checks the material groups covered by the projected triangles. The native cubemap flag does not indicate a hidden or translucent part; depth, blend and alpha overrides remain excluded. Both native-sticker suppression and projected drawing use the same eligibility check. RGB inventory input intercepts the verified virtual update slot and forwards to the native update body, preserving OC's observer on that body.
+Battle sticker visibility checks the material groups covered by the projected triangles and follows each group's native opacity. The native cubemap flag denotes reflection; hidden parts and special blend/depth passes do not receive projections. Both native-sticker suppression and projected drawing use the same eligibility check. RGB inventory input intercepts the verified virtual update slot and forwards to the native update body, preserving OC's observer on that body.
 
-Manager's `consolidates` contract maps legacy modules to registered boolean switches and requires explicit conflicts. Imports, programme updates and profile installs reuse their transactions and backups; reinstalling preserves the unified module's choices. Unshipped native probes check exact unit identity, server records, current-scene six-region materials and sustained sticker drawing. Captured frames still require inspection for occlusion and actual placement.
+Manager's `consolidates` contract maps legacy modules to registered boolean switches and requires explicit conflicts. Imports, programme updates and profile installs reuse their transactions and backups; reinstalling preserves the unified module's choices. Development-only native observers check exact unit identity, server records, current-scene six-region materials and sustained sticker drawing. Captured frames still require inspection for occlusion and actual placement.
+
+### Independent decal protocol
+
+See `include/sdgo/layered_decal.h` and `layered_decal_wire.h` for the model and validation. Each stable layer ID carries a sticker identity, native/independent source, visibility, rigid-part/geometry/triangle anchor, barycentrics, size, rotation, wrapping, wear and seed. Array order is bottom-to-top; an index is never an inventory identity. Reserved native IDs must match actual equipped slots and cannot impersonate free independent layers.
+
+Authenticated commands are `0x1022` GET, `0x1023` QUOTE, `0x1024` COMMIT and `0x1025` paged owned catalogue. Schema 3 uses a 40-byte header and 72 bytes per layer: 1480 bytes for twenty layers, and at most 1768 bytes for a full quote. The native fixed carrier size is unchanged. Canonicalize native float values before quoting; do not truncate or fragment. Quotes bind actor, unit, revision, canonical draft and policy to a short-lived token. Retries reuse that token.
+
+Never index beyond the original three native decal materials. Independent textures use the native resource loader and bounded caches. Real consumer behavior, rendered assets and inventory readback remain separate acceptance requirements; mocked replies and placeholder artwork do not prove them.

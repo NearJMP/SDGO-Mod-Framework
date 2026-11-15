@@ -66,6 +66,11 @@ Result MakePlacement(const Mesh&, const Hit&, std::uint64_t geometry,
                      Placement&, const Limits& = {});
 Result Project(const Mesh&, std::uint64_t geometry, std::uint32_t node,
                const Placement&, Patch&, const Limits& = {});
+// Unfold connected rigid faces across their shared edges before assigning UVs.
+// Unlike a flat projection this preserves area at a right-angle corner. It
+// never crosses a disconnected sheet, ambiguous edge or moving node boundary.
+Result ProjectWrapped(const Mesh&, std::uint64_t geometry, std::uint32_t node,
+                      const Placement&, Patch&, const Limits& = {});
 bool Valid(const Placement&, const Limits& = {});
 
 // Existing native item slots are retained. An absent placement means the
@@ -75,13 +80,24 @@ struct Slot {
     bool positioned = false;
     Placement placement;
 };
+struct Style {
+    std::uint16_t wear = 0; // 0..1000, deterministic removed coverage, not opacity
+    std::uint32_t seed = 0;
+    bool wrap = false;     // legacy placements retain their original flat mode
+};
 struct Appearance {
     std::uint64_t unitSerial = 0, revision = 0;
     std::uint32_t unitType = 0;
     std::array<Slot, 3> slots{};
+    std::array<Style,3> styles{};
+    std::array<std::uint8_t,3> order{{0,1,2}}; // bottom to top; never changes native item slots
 };
 bool Valid(const Appearance&, const Limits& = {});
 bool SameContent(const Appearance&, const Appearance&);
+bool SamePlacements(const Appearance&, const Appearance&);
+// Stable mask in sticker-local UV space, identical across views and clients.
+// Higher wear removes a superset of lower wear; zero preserves every texel.
+double WearCoverage(double u,double v,std::uint16_t wear,std::uint32_t seed);
 
 enum class EditState { closed, editing, awaitingReply, uncertain };
 enum class Reply { saved, rejected, conflict };
@@ -90,6 +106,9 @@ public:
     bool Open(const Appearance&);
     bool Place(std::size_t slot, const Placement&);
     bool ResetPosition(std::size_t slot);
+    bool SetWear(std::size_t slot,std::uint16_t amount,std::uint32_t seed);
+    bool SetWrap(std::size_t slot,bool);
+    bool MoveLayer(std::size_t slot,std::size_t destination);
     bool Cancel();
     bool BeginSave(std::uint64_t request, Appearance& proposal);
     bool Acknowledge(std::uint64_t request, Reply, const Appearance& authority);

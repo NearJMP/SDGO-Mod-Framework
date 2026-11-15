@@ -11,6 +11,7 @@
 #include "../mods/unit_appearance_client/decal/render.h"
 #include "sdgo/game_test.h"
 #include "sdgo/rgb_paint_observer.h"
+#include "sdgo/rgb_paint.h"
 #include "sdgo/pvp_ai_client_observer.h"
 #undef small
 #include "../mods/hangar_manager/native_ui.h"
@@ -135,7 +136,10 @@ int CaptureScene(const wchar_t* name){
     static std::wstring active;static std::uint64_t since=0;static bool requested=false,done=false;
     if(active!=name){active=name;since=GetTickCount64();requested=done=false;}
     if(done)return 1;
-    if(GetTickCount64()-since<700)return 0;
+    wchar_t holdText[16]{};GetEnvironmentVariableW(L"SDGO_GAME_TEST_REVIEW_HOLD_MS",holdText,16);
+    const auto configured=std::wcstoul(holdText,nullptr,10);
+    const auto hold=configured>=700&&configured<=5000?configured:700;
+    if(GetTickCount64()-since<hold)return 0;
     const auto runtime=GetModuleHandleW(L"game_test_client.dll");
     const auto request=reinterpret_cast<int(__cdecl*)(const wchar_t*)>(GetProcAddress(runtime,"SdgoGameTestCaptureFrameV1"));
     const auto status=reinterpret_cast<LONG(__cdecl*)(HRESULT*)>(GetProcAddress(runtime,"SdgoGameTestCaptureStatusV1"));
@@ -396,6 +400,11 @@ int PreviewInputCase(const SdgoGameTestContextV1* context,void* service){
     }
     return 1;
 }
+#include "native_layered_appearance_case.h"
+#include "native_appearance_scene_observer.h"
+#include "native_rgb_appearance_case.h"
+#include "native_corner_wear_case.h"
+#include "native_stock_refresh_case.h"
 int __cdecl ProbeCase(const SdgoGameTestContextV1* context) {
     using namespace sdgo::surface_decal;
     static unsigned step=0,tabClicks=0;static std::uint64_t clicked=0;
@@ -452,14 +461,22 @@ int __cdecl ProbeCase(const SdgoGameTestContextV1* context) {
         auto* root=At<void*>(service,0xd0);
         // The shipped page captions call PaintRadio the sticker/emblem tab;
         // StickerRadio is the seven-colour paint page in this native layout.
-        String key;key.data.pointer=L"PaintRadio";key.length=10;key.capacity=10;
+        const bool rgbTest=GetEnvironmentVariableW(L"SDGO_APPEARANCE_RGB_TEST",nullptr,0)>0;
+        String key;key.data.pointer=rgbTest?L"StickerRadio":L"PaintRadio";key.length=rgbTest?12:10;key.capacity=key.length;
         auto* control=root?find(root,&key,12):nullptr;
         if(!root||!control||At<void*>(control,0x15c)!=root||!At<std::uint8_t>(control,0x167))return SDGO_GAME_TEST_WAIT;
         auto event=At<Event>(At<void*>(service),14*4);event(service,0x301,reinterpret_cast<std::uintptr_t>(control)+0x118,control);
-        clicked=GetTickCount64();step=2;++tabClicks;context->Observe("native sticker tab invoked");return SDGO_GAME_TEST_WAIT;
+        clicked=GetTickCount64();step=2;++tabClicks;context->Observe(rgbTest?"native paint tab invoked":"native sticker tab invoked");return SDGO_GAME_TEST_WAIT;
+    }
+    if(GetEnvironmentVariableW(L"SDGO_APPEARANCE_RGB_TEST",nullptr,0)){
+        auto* rgbPage=Service("rgb_paint.page_vtable");if(!rgbPage||!SafeAt<std::uint8_t>(rgbPage,0xac))return SDGO_GAME_TEST_WAIT;
+        auto* rgbRoot=SafeAt<void*>(rgbPage,0xd0);if(!rgbRoot||!SafeAt<std::uint8_t>(rgbRoot,0x162))return SDGO_GAME_TEST_WAIT;
+        step=3; // A loaded page must not be reopened by the navigation retry.
+        return RgbAppearanceCase(context,rgbPage);
     }
     auto* service=Service("surface_decal.sticker_vtable");if(!service||!At<std::uint8_t>(service,0xac))return SDGO_GAME_TEST_WAIT;
     auto* root=At<void*>(service,0xd0);if(!root||!At<std::uint8_t>(root,0x162)||GetTickCount64()-clicked<1000)return SDGO_GAME_TEST_WAIT;
+    step=3;
     if(runtimeMode){
         static bool runtimeOpened=false;
         String key;key.data.pointer=L"SurfaceOpen";key.length=11;key.capacity=11;
@@ -474,108 +491,27 @@ int __cdecl ProbeCase(const SdgoGameTestContextV1* context) {
         if(!expectBackend&&(!At<std::uint8_t>(control,0x162)||At<std::uint8_t>(control,0x167))){
             context->Assert(0,"runtime entry remains visible but unavailable without the server companion");return SDGO_GAME_TEST_FAIL;
         }
+        if(GetEnvironmentVariableW(L"SDGO_APPEARANCE_CORNER_WEAR_TEST",nullptr,0))return CornerWearCase(context,service,root);
         void* cancel=nullptr;
         if(expectBackend){
             key.data.pointer=L"SurfaceCancel";key.length=13;key.capacity=13;cancel=find(root,&key,4);
             if(!cancel||!At<std::uint8_t>(cancel,0x162))return SDGO_GAME_TEST_WAIT;
         }
+        if(saveTest||GetEnvironmentVariableW(L"SDGO_SURFACE_LAYERED_TEST",nullptr,0))return LayeredEditorCase(context,service,root);
+        if(GetEnvironmentVariableW(L"SDGO_APPEARANCE_STOCK_REFRESH_TEST",nullptr,0))return NativeStockRefreshCase(context,service,root);
         if(GetEnvironmentVariableW(L"SDGO_SURFACE_CAMERA_TEST",nullptr,0)){
             const auto result=PreviewInputCase(context,service);
             if(result<0)return SDGO_GAME_TEST_FAIL;
             if(!result)return SDGO_GAME_TEST_WAIT;
         }
-        if(saveTest||reloadTest){
-            static unsigned phase=0;static Appearance baseline,proposal;
-            const auto runtime=GetModuleHandleW(L"unit_appearance_client.dll");
-            const auto observe=reinterpret_cast<test::Observe>(GetProcAddress(runtime,test::observeExport));
-            const auto place=reinterpret_cast<test::Place>(GetProcAddress(runtime,test::placeExport));
-            test::Snapshot snapshot;Appearance authority,draft;
-            if(!observe||!place||!observe(&snapshot)||!wire::Decode(snapshot.saved.data(),snapshot.saved.size(),authority)||
-               !wire::Decode(snapshot.preview.data(),snapshot.preview.size(),draft))return SDGO_GAME_TEST_FAIL;
-            const auto click=[&](const wchar_t* name){
-                String text;text.data.pointer=name;text.length=static_cast<unsigned>(std::wcslen(name));text.capacity=text.length;
-                auto* button=find(root,&text,4);if(!button||!At<std::uint8_t>(button,0x162)||!At<std::uint8_t>(button,0x167))return false;
-                auto event=At<Event>(At<void*>(service),14*4);event(service,0x101,reinterpret_cast<std::uintptr_t>(button)+0x118,button);return true;
-            };
-            if(!phase){
-                if(!authority.slots[0].sticker){context->Assert(0,"native test requires an existing equipped sticker");return SDGO_GAME_TEST_FAIL;}
-                if(reloadTest&&!authority.slots[0].positioned){context->Assert(0,"a new client process reads the previously saved surface placement");return SDGO_GAME_TEST_FAIL;}
-                const auto captured=CaptureScene(L"01-editor");if(captured<1)return captured<0?SDGO_GAME_TEST_FAIL:SDGO_GAME_TEST_WAIT;
-                baseline=authority;if(!click(L"SurfaceSlot0")||!click(L"SurfacePlace"))return SDGO_GAME_TEST_WAIT;
-                phase=1;return SDGO_GAME_TEST_WAIT;
-            }
-            if(phase==1){
-                if(GetEnvironmentVariableW(L"SDGO_SURFACE_SAVE_BACK",nullptr,0)){
-                    static ShopPointerInput pointer;static unsigned turn=0;
-                    static std::uint64_t at=0;static float yaw=0;
-                    auto* multi=editorPage.Preview(Service("surface_decal.factory_vtable"));
-                    if(!multi)return SDGO_GAME_TEST_WAIT;
-                    if(!turn){
-                        if(!pointer.Install(ownerApi,ownerMod)||!pointer.MoveToClientPoint(500,350))return SDGO_GAME_TEST_FAIL;
-                        yaw=At<float>(multi,0x250);pointer.SetRightButton(true);turn=1;at=GetTickCount64();return SDGO_GAME_TEST_WAIT;
-                    }
-                    if(GetTickCount64()-at<350)return SDGO_GAME_TEST_WAIT;
-                    if(turn==1){pointer.Motion(444,0);turn=2;at=GetTickCount64();return SDGO_GAME_TEST_WAIT;}
-                    if(turn==2){
-                        pointer.SetRightButton(false);pointer.Clear();
-                        const float delta=std::abs(At<float>(multi,0x250)-yaw);
-                        if(delta<3.0f||delta>3.2f){context->Assert(0,"native right drag turns the preview to its back");return SDGO_GAME_TEST_FAIL;}
-                        turn=3;at=GetTickCount64();return SDGO_GAME_TEST_WAIT;
-                    }
-                }
-                bool placed=false;
-                if(GetEnvironmentVariableW(L"SDGO_SURFACE_SAVE_BACK",nullptr,0))placed=place(500,340)!=0;
-                for(int y=340;y<=420&&!placed;y+=20)for(int x=480;x<=540&&!placed;x+=20)placed=place(x,y)!=0;
-                if(!placed){if(context->tick%120==0){char text[120];std::snprintf(text,sizeof text,"runtime placement waiting; fresh views=%u triangles=%u",snapshot.freshViews,snapshot.triangles);context->Observe(text);}return SDGO_GAME_TEST_WAIT;}
-                phase=2;return SDGO_GAME_TEST_WAIT;
-            }
-            if(phase==2){
-                if(!snapshot.triangles||!snapshot.draws)return SDGO_GAME_TEST_WAIT;
-                const auto captured=CaptureScene(L"02-placement");if(captured<1)return captured<0?SDGO_GAME_TEST_FAIL:SDGO_GAME_TEST_WAIT;
-                if(reloadTest){
-                    if(!click(L"SurfaceCancel"))return SDGO_GAME_TEST_WAIT;
-                    test::Snapshot after;if(!observe(&after)||after.editing)return SDGO_GAME_TEST_FAIL;
-                    Appearance unchanged;if(!wire::Decode(after.saved.data(),after.saved.size(),unchanged)||!SameContent(unchanged,baseline)||unchanged.revision!=baseline.revision)return SDGO_GAME_TEST_FAIL;
-                    ownerApi->Log(ownerMod,SDGO_LOG_INFO,"surface runtime reload and cancellation pass");phase=5;
-                    // Reopen through the native entry to capture the saved view.
-                    runtimeOpened=false;return SDGO_GAME_TEST_WAIT;
-                }
-                if(GetEnvironmentVariableW(L"SDGO_SURFACE_SAVE_BACK",nullptr,0))
-                    for(unsigned i=0;i<4;++i)if(!click(L"SurfaceLarger"))return SDGO_GAME_TEST_FAIL;
-                if(!click(L"SurfaceRight")||!click(L"SurfaceLarger")||!click(L"SurfaceSave"))return SDGO_GAME_TEST_WAIT;
-                phase=3;return SDGO_GAME_TEST_WAIT;
-            }
-            if(phase==3){
-                const auto captured=CaptureScene(L"03-confirm");if(captured<1)return captured<0?SDGO_GAME_TEST_FAIL:SDGO_GAME_TEST_WAIT;
-                if(snapshot.pending||authority.revision!=baseline.revision||!SameContent(authority,baseline)){
-                    context->Assert(0,"first save click previews without mutating the server");return SDGO_GAME_TEST_FAIL;
-                }
-                proposal=draft;if(!click(L"SurfaceSave"))return SDGO_GAME_TEST_WAIT;
-                test::Snapshot sent;if(!observe(&sent))return SDGO_GAME_TEST_FAIL;
-                // A native click can arrive while the shared transport is
-                // occupied. Require an actual submission before awaiting its
-                // acknowledgement; an unchanged editable draft is not a reply.
-                Appearance updated;
-                if(!sent.pending&&sent.state==static_cast<unsigned>(EditState::editing)&&
-                   wire::Decode(sent.saved.data(),sent.saved.size(),updated)&&updated.revision==baseline.revision)
-                    return SDGO_GAME_TEST_WAIT;
-                phase=4;return SDGO_GAME_TEST_WAIT;
-            }
-            if(phase==4){
-                if(snapshot.pending||snapshot.state!=static_cast<unsigned>(EditState::editing))return SDGO_GAME_TEST_WAIT;
-                if(authority.revision!=baseline.revision+1||!SameContent(authority,proposal)){
-                    context->Assert(0,"save acknowledgement carries the exact draft with one newer revision");return SDGO_GAME_TEST_FAIL;
-                }
-                const auto captured=CaptureScene(L"04-saved");if(captured<1)return captured<0?SDGO_GAME_TEST_FAIL:SDGO_GAME_TEST_WAIT;
-                wchar_t recordPath[MAX_PATH]{};
-                if(GetEnvironmentVariableW(L"SDGO_SURFACE_SAVED_RECORD",recordPath,MAX_PATH)){
-                    FILE* record=nullptr;if(_wfopen_s(&record,recordPath,L"wb")||!record)return SDGO_GAME_TEST_FAIL;
-                    const bool written=std::fwrite(snapshot.saved.data(),1,snapshot.saved.size(),record)==snapshot.saved.size();std::fclose(record);
-                    if(!written)return SDGO_GAME_TEST_FAIL;
-                }
-                ownerApi->Log(ownerMod,SDGO_LOG_INFO,"surface runtime save acknowledgement pass; triangles=%u draws=%u",snapshot.triangles,snapshot.draws);phase=5;
-            }
+        if(reloadTest){
+            const auto observe=reinterpret_cast<test::LayerObserve>(GetProcAddress(GetModuleHandleW(L"unit_appearance_client.dll"),test::layerExport));
+            test::LayerSnapshot snapshot;layers::Design authority;
+            if(!observe||!observe(0,&snapshot)||!layers::wire::Decode(snapshot.saved.data(),snapshot.savedBytes,authority))return SDGO_GAME_TEST_WAIT;
+            if(authority.items.empty()||!snapshot.triangles||snapshot.draws<100)return SDGO_GAME_TEST_WAIT;
+            context->Assert(1,"a fresh native process reads and draws the independently saved layer design");
         }
+
         const auto test=GetModuleHandleW(L"game_test_client.dll");
         const auto request=reinterpret_cast<int(__cdecl*)(const wchar_t*)>(GetProcAddress(test,"SdgoGameTestCaptureFrameV1"));
         const auto status=reinterpret_cast<LONG(__cdecl*)(HRESULT*)>(GetProcAddress(test,"SdgoGameTestCaptureStatusV1"));
@@ -616,7 +552,7 @@ int __cdecl ProbeCase(const SdgoGameTestContextV1* context) {
     }
     std::lock_guard<std::mutex> hold(gate);
     if(captureComplete){
-        editorPage.Render(false,false,0,false,false,false,nullptr,L"");
+        editorPage.Render(false,false,0,false,false,false,static_cast<const sdgo::surface_decal::Appearance*>(nullptr),L"");
         context->Assert(!At<std::uint8_t>(editorPage.Control(sdgo::surface_decal::ui::Action::cancel),0x162),"closing the editor hides its native controls");
         context->Assert(1,"the native sticker page draws a projected test decal and its editor on the real backbuffer");return SDGO_GAME_TEST_PASS;
     }
@@ -677,17 +613,27 @@ SDGO_MOD_ENTRY {
     wchar_t run[64]{};
     if(!GetEnvironmentVariableW(L"SDGO_GAME_TEST_RUN",run,64)||!api||!api->HookCode||!api->Log||!reader.Bind(api,mod)||!editorPage.Bind(api,mod))return 0;
     ownerApi=api;ownerMod=mod;
-    wchar_t runtime[8]{};runtimeMode=GetEnvironmentVariableW(L"SDGO_SURFACE_REAL_RUNTIME",runtime,8)&&runtime[0]==L'1';
-    expectBackend=GetEnvironmentVariableW(L"SDGO_SURFACE_EXPECT_BACKEND",runtime,8)&&runtime[0]==L'1';
-    saveTest=GetEnvironmentVariableW(L"SDGO_SURFACE_SAVE_TEST",runtime,8)&&runtime[0]==L'1';
+    wchar_t runtime[8]{};runtimeMode=api->SettingInt&&api->SettingInt(mod,"Runtime",1)!=0;
+    expectBackend=api->SettingInt&&api->SettingInt(mod,"ExpectCompanion",1)!=0;
+    saveTest=api->SettingInt&&api->SettingInt(mod,"SaveTest",0)!=0;
+    if(GetEnvironmentVariableW(L"SDGO_SURFACE_REAL_RUNTIME",runtime,8))runtimeMode=runtime[0]==L'1';
+    if(GetEnvironmentVariableW(L"SDGO_SURFACE_EXPECT_BACKEND",runtime,8))expectBackend=runtime[0]==L'1';
+    if(GetEnvironmentVariableW(L"SDGO_SURFACE_SAVE_TEST",runtime,8))saveTest=runtime[0]==L'1';
     reloadTest=GetEnvironmentVariableW(L"SDGO_SURFACE_RELOAD_TEST",runtime,8)&&runtime[0]==L'1';
     battleTest=GetEnvironmentVariableW(L"SDGO_SURFACE_BATTLE_TEST",runtime,8)&&runtime[0]==L'1';
-    if(runtimeMode)return 1; // the real Mod owns every hook; the provider drives native UI
+    if(runtimeMode)return PrepareAppearanceSceneObserver()?1:0; // production owns all rendering; optional observer is read-only
     renderer=static_cast<void**>(api->Symbol(mod,"surface_decal.renderer"));
     return renderer&&api->HookCode(mod,"surface_decal.unit_style",reinterpret_cast<void*>(&Observe),reinterpret_cast<void**>(&original))&&
         api->HookCode(mod,"surface_decal.render_direct",reinterpret_cast<void*>(&Direct),reinterpret_cast<void**>(&direct))&&
         api->HookCode(mod,"surface_decal.render_shader",reinterpret_cast<void*>(&Shader),reinterpret_cast<void**>(&shader))&&
         api->HookCode(mod,"surface_decal.render_callback",reinterpret_cast<void*>(&Callback),reinterpret_cast<void**>(&callback));
+}
+extern "C" __declspec(dllexport) int __cdecl SdgoAppearanceEditorProbeV1(const SdgoGameTestContextV1* context){
+    if(!context||!runtimeMode)return SDGO_GAME_TEST_FAIL;
+    if(!GetEnvironmentVariableW(L"SDGO_SURFACE_TEST_CAPTURE",nullptr,0)){
+        const auto capture=std::wstring(context->directory)+L"\\appearance-editor.bmp";SetEnvironmentVariableW(L"SDGO_SURFACE_TEST_CAPTURE",capture.c_str());
+    }
+    return ProbeCase(context);
 }
 SDGO_GAME_TEST_PROVIDER_ENTRY {
     static std::array<SdgoGameTestCaseV1,6> cases{};

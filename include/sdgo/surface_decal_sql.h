@@ -9,7 +9,7 @@ inline std::wstring Hex(const std::uint8_t* data,std::size_t n) {
 }
 // The caller supplies integers from authenticated transport and validated wire
 // data only. No SQL identifiers, strings or connection settings come from peers.
-inline std::wstring Request(std::uint32_t actor,std::uint64_t serial,const Appearance* proposal) {
+inline std::wstring Request(std::uint32_t actor,std::uint64_t serial,const Appearance* proposal,bool legacySave=false) {
     if(!actor||actor>INT32_MAX||!serial||serial>INT64_MAX)return {};
     wire::Bytes encoded{};
     if(proposal&&(!wire::Encode(*proposal,encoded)||proposal->unitSerial!=serial||proposal->revision>=INT64_MAX))return {};
@@ -25,6 +25,10 @@ inline std::wstring Request(std::uint32_t actor,std::uint64_t serial,const Appea
         L"Placement1=CASE WHEN UnitNumber<>@unit OR Sticker1<>@d1 THEN NULL ELSE Placement1 END,"
         L"Placement2=CASE WHEN UnitNumber<>@unit OR Sticker2<>@d2 THEN NULL ELSE Placement2 END,"
         L"Placement3=CASE WHEN UnitNumber<>@unit OR Sticker3<>@d3 THEN NULL ELSE Placement3 END,"
+        L"StyleData=CASE WHEN UnitNumber<>@unit THEN NULL ELSE ISNULL(SUBSTRING(StyleData,1,8),0x0001020000000000)+"
+        L"CASE WHEN Sticker1<>@d1 THEN 0x0000000000000000 ELSE ISNULL(SUBSTRING(StyleData,9,8),0x0000000000000000) END+"
+        L"CASE WHEN Sticker2<>@d2 THEN 0x0000000000000000 ELSE ISNULL(SUBSTRING(StyleData,17,8),0x0000000000000000) END+"
+        L"CASE WHEN Sticker3<>@d3 THEN 0x0000000000000000 ELSE ISNULL(SUBSTRING(StyleData,25,8),0x0000000000000000) END END,"
         L"UnitNumber=@unit,Sticker1=@d1,Sticker2=@d2,Sticker3=@d3,Revision=Revision+1 "
         L"WHERE UserUnitNumber=@uid AND (UnitNumber<>@unit OR Sticker1<>@d1 OR Sticker2<>@d2 OR Sticker3<>@d3); ";
     if(proposal){
@@ -32,12 +36,19 @@ inline std::wstring Request(std::uint32_t actor,std::uint64_t serial,const Appea
         for(unsigned i=0;i<3;++i)s+=L" OR @d"+std::to_wstring(i+1)+L"<>"+std::to_wstring(proposal->slots[i].sticker);
         s+=L" SET @result=12; ELSE IF EXISTS(SELECT 1 FROM dbo.sdgo_mod_surface_decal WHERE UserUnitNumber=@uid AND Revision="+std::to_wstring(proposal->revision)+L") BEGIN UPDATE dbo.sdgo_mod_surface_decal SET Revision=Revision+1";
         for(unsigned i=0;i<3;++i)s+=L",Placement"+std::to_wstring(i+1)+L"="+Hex(encoded.data()+wire::headerBytes+i*wire::slotBytes,wire::slotBytes);
+        if(!legacySave)s+=L",StyleData="+Hex(encoded.data()+wire::legacyBytes,wire::styleBytes);
+        else {
+            s+=L",StyleData=ISNULL(SUBSTRING(StyleData,1,8),0x0001020000000000)";
+            for(unsigned i=0;i<3;++i)s+=proposal->slots[i].positioned?
+                L"+ISNULL(SUBSTRING(StyleData,"+std::to_wstring(9+i*8)+L",8),0x0000000000000000)":L"+0x0000000000000000";
+        }
         s+=L" WHERE UserUnitNumber=@uid; END ELSE IF NOT EXISTS(SELECT 1 FROM dbo.sdgo_mod_surface_decal WHERE UserUnitNumber=@uid AND Revision="+std::to_wstring(proposal->revision+1);
         for(unsigned i=0;i<3;++i)s+=L" AND Placement"+std::to_wstring(i+1)+L"="+Hex(encoded.data()+wire::headerBytes+i*wire::slotBytes,wire::slotBytes);
+        if(!legacySave)s+=L" AND StyleData="+Hex(encoded.data()+wire::legacyBytes,wire::styleBytes);
         s+=L") SET @result=12; "; // exact retry, never applies a mutation twice
     }
     s+=L"SELECT @result,UnitNumber,Revision,Sticker1,Sticker2,Sticker3,"
-       L"ISNULL(CONVERT(varchar(208),Placement1,2),''),ISNULL(CONVERT(varchar(208),Placement2,2),''),ISNULL(CONVERT(varchar(208),Placement3,2),'') "
+       L"ISNULL(CONVERT(varchar(208),Placement1,2),''),ISNULL(CONVERT(varchar(208),Placement2,2),''),ISNULL(CONVERT(varchar(208),Placement3,2),''),ISNULL(CONVERT(varchar(64),StyleData,2),'') "
        L"FROM dbo.sdgo_mod_surface_decal WHERE UserUnitNumber=@uid; COMMIT; END TRY BEGIN CATCH IF @@TRANCOUNT>0 ROLLBACK; THROW; END CATCH;";
     return s;
 }

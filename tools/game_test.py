@@ -147,7 +147,7 @@ MISSION_CLAIM_FIELDS = (
     "mission_result_claim",
     "mission_active_exit_claim",
 )
-PAGE_GROUPS = ('hangar', 'preview_guard', 'storage_gift', 'capsule')
+PAGE_GROUPS = ('hangar', 'preview_guard', 'storage_gift', 'capsule', 'appearance')
 IGNORED_DIRECTORIES = {
     ".git",
     ".sdgo-updater",
@@ -2025,6 +2025,8 @@ def required_flow_cases(mode_sequence: str, bootstrap_only: bool = False,
         return FLOW_CASES[:3] + selection + MISSION_FLOW_CASES + imported + (('mission.respawn',) if mission_respawns else ())
     modes = parse_mode_sequence(mode_sequence)
     if pages_only:
+        if page_group == 'appearance':
+            return FLOW_CASES[:3] + selection + ('appearance.native_editor',)
         if page_group == 'capsule':
             return FLOW_CASES[:3] + ('catalog.capsule', 'pages.capsule.currency')
         if page_group == 'preview_guard':
@@ -3625,6 +3627,12 @@ def prepare(
     if page_group is not None:
         if page_group not in PAGE_GROUPS or not pages_only:
             raise GameTestError('page_group requires --pages-only')
+        if page_group == 'appearance':
+            sdk=manifest_mod(stage/'client/sdgo/mods/game_test_client/mod.ini').get('version','')
+            parsed=re.fullmatch(r'(\d+)\.(\d+)\.(\d+)(?:[-+].*)?',sdk)
+            if not parsed or tuple(map(int,parsed.groups()))<(0,1,45):
+                raise GameTestError('appearance editor requires native observer0.1.45 or newer')
+            extra_mods=tuple(dict.fromkeys((*extra_mods,'appearance_probe','unit_appearance_client')))
         sdk=manifest_mod(stage/'client/sdgo/mods/game_test_client/mod.ini').get('version','')
         parsed=re.fullmatch(r'(\d+)\.(\d+)\.(\d+)(?:[-+].*)?',sdk)
         if not parsed or tuple(map(int,parsed.groups())) < (0,1,8):

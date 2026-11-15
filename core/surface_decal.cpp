@@ -246,17 +246,104 @@ Result Project(const Mesh& m, std::uint64_t geometry, std::uint32_t node,
     output=std::move(result); return Result::ok;
 }
 
+Result ProjectWrapped(const Mesh& m,std::uint64_t geometry,std::uint32_t node,
+                      const Placement& p,Patch& output,const Limits& l){
+    const auto valid=ValidateMesh(m,l);if(valid!=Result::ok)return valid;
+    if(!Valid(p,l)||p.anchor.triangle>=m.triangles.size())return Result::invalidPlacement;
+    if(p.anchor.geometry!=geometry||p.anchor.node!=node)return Result::wrongGeometry;
+    Vec3 normal,tangent;
+    if(!Normal(m,p.anchor.triangle,normal)||!Normalize(Sub(p.anchor.tangent,Mul(normal,Dot(p.anchor.tangent,normal))),tangent))return Result::invalidPlacement;
+    const Vec3 center=Position(m,p.anchor.triangle,p.anchor.barycentric),bitangent=Cross(normal,tangent);
+    const double c=std::cos(p.rotation),s=std::sin(p.rotation);
+    const Vec3 right=Add(Mul(tangent,c),Mul(bitangent,s)),up=Sub(Mul(bitangent,c),Mul(tangent,s));
+    using Edge=std::pair<std::uint32_t,std::uint32_t>;
+    std::map<Edge,std::vector<std::uint32_t>> edges;
+    for(std::uint32_t i=0;i<m.triangles.size();++i)for(unsigned j=0;j<3;++j){
+        const auto a=m.triangles[i].vertex[j],b=m.triangles[i].vertex[(j+1)%3];edges[{std::min(a,b),std::max(a,b)}].push_back(i);
+    }
+    struct Face {std::uint32_t id;std::array<Vec2,3> chart;};
+    Face root{p.anchor.triangle,{}};
+    for(unsigned j=0;j<3;++j){auto delta=Sub(m.vertices[m.triangles[root.id].vertex[j]],center);root.chart[j]={Dot(delta,right),Dot(delta,up)};}
+    std::vector<Face> queue{root};std::vector<std::uint8_t> seen(m.triangles.size(),0);seen[root.id]=1;Patch result;
+    for(std::size_t q=0;q<queue.size();++q){
+        const auto face=queue[q];const auto& ids=m.triangles[face.id].vertex;Vec3 n;
+        if(!Normal(m,face.id,n))continue;
+        std::vector<Projected> polygon;
+        for(unsigned j=0;j<3;++j){Projected v;v.vertex.position=m.vertices[ids[j]];v.vertex.triangle=face.id;v.vertex.barycentric[j]=1;
+            v.u=.5-face.chart[j].x/p.width;v.v=.5-face.chart[j].y/p.height;polygon.push_back(v);}
+        const auto original=polygon;for(unsigned plane=0;plane<4;++plane)Clip(polygon,plane,0);
+        if(polygon.size()<3)continue;
+        for(std::size_t j=1;j+1<polygon.size();++j){
+            const Projected triangle[]={polygon[0],polygon[j],polygon[j+1]};Vec3 unused;
+            if(!Normalize(Cross(Sub(triangle[1].vertex.position,triangle[0].vertex.position),Sub(triangle[2].vertex.position,triangle[0].vertex.position)),unused))continue;
+            if(result.vertices.size()/3>=l.outputTriangles)return Result::budgetExceeded;
+            for(const auto& v:triangle){auto out=v.vertex;out.uv={std::clamp(v.u,0.,1.),std::clamp(v.v,0.,1.)};result.vertices.push_back(out);}
+        }
+        for(unsigned edge=0;edge<3;++edge){
+            // Restrict traversal to the finite decal rectangle. Unfolded faces
+            // outside it cannot walk around the back to disconnected copies.
+            auto a=original[edge],b=original[(edge+1)%3];bool intersects=true;
+            for(unsigned plane=0;plane<4;++plane){const double da=Distance(a,plane,0),db=Distance(b,plane,0);
+                if(da<0&&db<0){intersects=false;break;}
+                if((da<0)!=(db<0)){const auto cut=Interpolate(a,b,da/(da-db));if(da<0)a=cut;else b=cut;}}
+            if(!intersects)continue;
+            const auto ia=ids[edge],ib=ids[(edge+1)%3];const auto& neighbors=edges.at({std::min(ia,ib),std::max(ia,ib)});
+            if(neighbors.size()!=2)continue;
+            for(const auto next:neighbors){
+                if(seen[next])continue;Vec3 other;if(!Normal(m,next,other)||Dot(n,other)<-.5)continue;
+                const auto& ni=m.triangles[next].vertex;unsigned ca=3,cb=3,cc=3;
+                for(unsigned j=0;j<3;++j){if(ni[j]==ia)ca=j;else if(ni[j]==ib)cb=j;else cc=j;}
+                if(ca==3||cb==3||cc==3)continue;
+                const auto A=face.chart[edge],B=face.chart[(edge+1)%3],C=face.chart[(edge+2)%3];
+                const double dx=B.x-A.x,dy=B.y-A.y,length=std::hypot(dx,dy);if(length<epsilon)continue;
+                const auto va=Sub(m.vertices[ni[cc]],m.vertices[ia]),vb=Sub(m.vertices[ni[cc]],m.vertices[ib]);
+                const double along=(Dot(va,va)-Dot(vb,vb)+length*length)/(2*length),h2=Dot(va,va)-along*along;
+                if(!std::isfinite(h2)||h2<-epsilon)continue;
+                const double side=dx*(C.y-A.y)-dy*(C.x-A.x),height=std::sqrt(std::max(0.,h2))*(side>=0?-1:1);
+                Face f{next,{}};f.chart[ca]=A;f.chart[cb]=B;
+                f.chart[cc]={A.x+dx*along/length-dy*height/length,A.y+dy*along/length+dx*height/length};
+                if(!std::isfinite(f.chart[cc].x)||!std::isfinite(f.chart[cc].y))return Result::invalidMesh;
+                seen[next]=1;queue.push_back(f);
+            }
+        }
+    }
+    if(result.vertices.empty())return Result::empty;output=std::move(result);return Result::ok;
+}
+
+double WearCoverage(double u,double v,std::uint16_t wear,std::uint32_t seed){
+    if(!std::isfinite(u)||!std::isfinite(v)||wear>1000)return 0;
+    if(!wear)return 1;if(wear==1000)return 0;
+    const auto hash=[](std::uint32_t x){x^=x>>16;x*=0x7feb352du;x^=x>>15;x*=0x846ca68bu;return x^(x>>16);};
+    // Integer cells and seeded scratches are stable in decal UVs, never tied
+    // to a screen pixel, frame, machine address or camera distance.
+    u=std::clamp(u,0.,1.);v=std::clamp(v,0.,1.);
+    const auto x=static_cast<std::uint32_t>(u*128),y=static_cast<std::uint32_t>(v*128);
+    const double grain=(hash(x*73471u+y*19391u+seed)&65535u)/65535.;
+    const auto row=static_cast<std::uint32_t>((v+u*.27)*192);
+    const double scratch=(hash(row+seed*31u)&65535u)/65535.;
+    const double edge=std::min({u,v,1-u,1-v});
+    const double threshold=std::clamp(.15+.67*grain+.18*scratch-(edge<.055?.17:0.)-(scratch<.075?.22:0.),0.,1.);
+    const double level=wear/1000.;return std::clamp((threshold-level)*90+.5,0.,1.);
+}
+
 bool Valid(const Appearance& a, const Limits& l) {
     if (!a.unitSerial || !a.unitType || !ValidLimits(l)) return false;
+    auto order=a.order;std::sort(order.begin(),order.end());if(order!=std::array<std::uint8_t,3>{{0,1,2}})return false;
+    for(std::size_t i=0;i<3;++i)if(a.styles[i].wear>1000||((a.styles[i].wear||a.styles[i].wrap)&&!a.slots[i].positioned))return false;
     for (const auto& slot:a.slots)
         if (slot.positioned && (!slot.sticker || !Valid(slot.placement,l))) return false;
     return true;
 }
 bool SameContent(const Appearance& a, const Appearance& b) {
+    if(a.order!=b.order)return false;
+    for(unsigned i=0;i<3;++i)if(a.styles[i].wear!=b.styles[i].wear||a.styles[i].seed!=b.styles[i].seed||a.styles[i].wrap!=b.styles[i].wrap)return false;
+    return SamePlacements(a,b);
+}
+bool SamePlacements(const Appearance& a,const Appearance& b){
     if (!SameUnit(a,b)) return false;
     for (std::size_t i=0;i<a.slots.size();++i) {
         const auto& x=a.slots[i]; const auto& y=b.slots[i];
-        if (x.sticker!=y.sticker || x.positioned!=y.positioned ||
+        if (x.sticker!=y.sticker || x.positioned!=y.positioned || a.styles[i].wrap!=b.styles[i].wrap ||
             (x.positioned&&!Same(x.placement,y.placement))) return false;
     }
     return true;
@@ -273,7 +360,23 @@ bool Editor::Place(std::size_t slot, const Placement& p) {
 }
 bool Editor::ResetPosition(std::size_t slot) {
     if (state_!=EditState::editing || slot>=draft_.slots.size()) return false;
-    draft_.slots[slot].positioned=false; draft_.slots[slot].placement={}; return true;
+    draft_.slots[slot].positioned=false; draft_.slots[slot].placement={};draft_.styles[slot]={};return true;
+}
+bool Editor::SetWear(std::size_t slot,std::uint16_t amount,std::uint32_t seed){
+    if(state_!=EditState::editing||slot>=3||!draft_.slots[slot].positioned||amount>1000)return false;
+    draft_.styles[slot].wear=amount;draft_.styles[slot].seed=seed;return true;
+}
+bool Editor::SetWrap(std::size_t slot,bool enabled){
+    if(state_!=EditState::editing||slot>=3||!draft_.slots[slot].positioned)return false;
+    draft_.styles[slot].wrap=enabled;return true;
+}
+bool Editor::MoveLayer(std::size_t slot,std::size_t destination){
+    if(state_!=EditState::editing||slot>=3||destination>=3||!draft_.slots[slot].sticker)return false;
+    const auto it=std::find(draft_.order.begin(),draft_.order.end(),static_cast<std::uint8_t>(slot));
+    const auto current=static_cast<std::size_t>(it-draft_.order.begin());
+    if(current<destination)std::rotate(it,it+1,draft_.order.begin()+destination+1);
+    else if(current>destination)std::rotate(draft_.order.begin()+destination,it,it+1);
+    return true;
 }
 bool Editor::Cancel() {
     if (state_!=EditState::editing) return false;

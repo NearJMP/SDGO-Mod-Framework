@@ -5,8 +5,10 @@
 
 namespace sdgo::surface_decal::wire {
 inline constexpr std::uint16_t get = 0x1020, save = 0x1021;
-inline constexpr std::size_t headerBytes = 24, slotBytes = 104, appearanceBytes = headerBytes + 3*slotBytes;
+inline constexpr std::size_t headerBytes=24,slotBytes=104,legacyBytes=headerBytes+3*slotBytes;
+inline constexpr std::size_t styleBytes=32,appearanceBytes=legacyBytes+styleBytes;
 using Bytes = std::array<std::uint8_t,appearanceBytes>;
+using LegacyBytes=std::array<std::uint8_t,legacyBytes>;
 inline void Put(std::uint8_t* p,std::uint64_t x,unsigned n) {for(unsigned i=0;i<n;++i){p[i]=static_cast<std::uint8_t>(x);x>>=8;}}
 inline std::uint64_t Get(const std::uint8_t* p,unsigned n) {std::uint64_t x=0;for(unsigned i=0;i<n;++i)x|=std::uint64_t(p[i])<<(8*i);return x;}
 inline void Real(std::uint8_t* p,double x) {std::uint64_t bits=0;static_assert(sizeof x==sizeof bits);std::memcpy(&bits,&x,8);Put(p,bits,8);}
@@ -14,7 +16,7 @@ inline double Real(const std::uint8_t* p) {const auto bits=Get(p,8);double x;std
 inline bool Encode(const Appearance& a,Bytes& out) {
     if(!Valid(a)||a.unitType>INT32_MAX||a.unitSerial>INT64_MAX||a.revision>INT64_MAX)return false;
     for(const auto& slot:a.slots)if(slot.sticker>INT32_MAX)return false;
-    Bytes b{};Put(b.data(),1,4);Put(b.data()+4,a.unitType,4);Put(b.data()+8,a.unitSerial,8);Put(b.data()+16,a.revision,8);
+    Bytes b{};Put(b.data(),2,4);Put(b.data()+4,a.unitType,4);Put(b.data()+8,a.unitSerial,8);Put(b.data()+16,a.revision,8);
     for(std::size_t i=0;i<3;++i){
         auto* s=b.data()+headerBytes+i*slotBytes;const auto& v=a.slots[i];
         Put(s,v.sticker,4);Put(s+4,v.positioned?1:0,4);
@@ -24,10 +26,18 @@ inline bool Encode(const Appearance& a,Bytes& out) {
         Real(s+48,p.anchor.tangent.x);Real(s+56,p.anchor.tangent.y);Real(s+64,p.anchor.tangent.z);
         Real(s+72,p.width);Real(s+80,p.height);Real(s+88,p.rotation);Real(s+96,p.depth);
     }
+    auto* styles=b.data()+legacyBytes;
+    for(unsigned i=0;i<3;++i){styles[i]=a.order[i];auto* s=styles+8+i*8;Put(s,a.styles[i].wear,2);Put(s+2,a.styles[i].wrap?1:0,2);Put(s+4,a.styles[i].seed,4);}
     out=b;return true;
 }
+inline bool EncodeLegacy(const Appearance& a,LegacyBytes& out){
+    Bytes current;if(!Encode(a,current))return false;LegacyBytes legacy{};
+    std::memcpy(legacy.data(),current.data(),legacy.size());Put(legacy.data(),1,4);out=legacy;return true;
+}
 inline bool Decode(const std::uint8_t* b,std::size_t n,Appearance& out) {
-    if(!b||n!=appearanceBytes||Get(b,4)!=1)return false;
+    if(!b||n<4)return false;
+    const auto version=Get(b,4);
+    if(!((version==1&&n==legacyBytes)||(version==2&&n==appearanceBytes)))return false;
     Appearance a;a.unitType=static_cast<std::uint32_t>(Get(b+4,4));a.unitSerial=Get(b+8,8);a.revision=Get(b+16,8);
     if(a.unitType>INT32_MAX||a.unitSerial>INT64_MAX||a.revision>INT64_MAX)return false;
     for(std::size_t i=0;i<3;++i){
@@ -38,6 +48,12 @@ inline bool Decode(const std::uint8_t* b,std::size_t n,Appearance& out) {
         for(unsigned j=0;j<3;++j)p.anchor.barycentric[j]=Real(s+24+j*8);
         p.anchor.tangent={Real(s+48),Real(s+56),Real(s+64)};
         p.width=Real(s+72);p.height=Real(s+80);p.rotation=Real(s+88);p.depth=Real(s+96);
+    }
+    if(version==2){const auto* styles=b+legacyBytes;
+        for(unsigned i=3;i<8;++i)if(styles[i])return false;
+        for(unsigned i=0;i<3;++i){a.order[i]=styles[i];const auto* s=styles+8+i*8;
+            a.styles[i].wear=static_cast<std::uint16_t>(Get(s,2));const auto flags=Get(s+2,2);if(flags>1)return false;
+            a.styles[i].wrap=flags!=0;a.styles[i].seed=static_cast<std::uint32_t>(Get(s+4,4));}
     }
     if(!Valid(a))return false;out=a;return true;
 }

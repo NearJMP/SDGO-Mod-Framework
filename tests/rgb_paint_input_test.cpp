@@ -8,11 +8,13 @@
 #include <cstdint>
 namespace fixture {
 unsigned forwarded=0,updates=0,picks=0,events=0;
+bool decalBlocked=false;
 LRESULT CALLBACK Forward(HWND hwnd,UINT msg,WPARAM wp,LPARAM lp){if(msg>=WM_MOUSEFIRST&&msg<=WM_MOUSELAST)++forwarded;return DefSubclassProc(hwnd,msg,wp,lp);}
 void __fastcall Update(void*,void*){++updates;}
 void __fastcall Pick(void*,void*){++picks;}
 int __stdcall Event(void*,unsigned msg,std::uintptr_t id,void* control){assert(msg==0xa02&&id==17&&control);++events;return 37;}
 }
+bool SurfaceDecalInputBlocked(){return fixture::decalBlocked;}
 #define DefSubclassProc fixture::Forward
 #include "../mods/unit_appearance_client/rgb/rgb_paint_client.cpp"
 #undef DefSubclassProc
@@ -49,7 +51,8 @@ int main(){
         send(WM_LBUTTONDOWN,850,200);assert(pointerButtons);SendMessageW(window,cancel,0,0);assert(!pointerButtons&&!panel.Dragging());
     }
     authorityReady=false;send(WM_LBUTTONDOWN,850,200);assert(pointerButtons&&!panel.Dragging());send(WM_LBUTTONUP,850,200);
-    active=false;native(false);active=true;Put<std::uint8_t>(root,0x162,0);native(false);Put<std::uint8_t>(root,0x162,1);
+    active=false;native(false);fixture::decalBlocked=true;native(true);fixture::decalBlocked=false;
+    active=true;Put<std::uint8_t>(root,0x162,0);native(false);Put<std::uint8_t>(root,0x162,1);
     send(WM_LBUTTONDOWN,850,200);Detach(false);assert(!pointerButtons&&!active);native(false);
     DestroyWindow(window);std::puts("RGB input: native inventory isolation, complete gestures, mode switch and cleanup passed");
 }

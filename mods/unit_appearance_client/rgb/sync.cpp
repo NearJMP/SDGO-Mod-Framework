@@ -195,7 +195,10 @@ void Pump(){
 }
 bool SaveRecord(const Record& record,Saved callback){
     std::lock_guard<std::recursive_mutex> hold(gate);wire::Bytes bytes;
-    if(!sessionKey||record.state.identity.session!=sessionKey||queued||pending.command==wire::save||!send||!transport||transport()!=1||!wire::Encode(record,bytes))return false;
+    // The shared carrier may be serving decals or another read. Queue the
+    // confirmed draft; Tick sends it once the same authenticated session is
+    // idle. Refusing here turned a normal background read into a failed save.
+    if(!sessionKey||record.state.identity.session!=sessionKey||queued||pending.command==wire::save||!send||!transport||!wire::Encode(record,bytes))return false;
     queued=Queued{record,callback,GetTickCount64()};return true;
 }
 bool Observe(std::uint64_t uid,Observation& out){std::lock_guard<std::recursive_mutex> hold(gate);const auto c=cache.find(uid);if(c==cache.end())return false;Observation o;o.revision=c->second.record.state.revision;o.colors=c->second.record.state.colors;o.reads=c->second.reads;for(const auto& pair:models)if(pair.second.record.state.identity.unit==uid){o.draws+=pair.second.draws;o.regions=(std::max)(o.regions,pair.second.regions);o.matched|=pair.second.matched;if(pair.second.battle){o.battleDraws+=pair.second.battleDraws;o.battleMatched|=pair.second.matched;}}out=o;return true;}

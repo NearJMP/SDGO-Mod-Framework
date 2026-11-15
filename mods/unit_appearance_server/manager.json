@@ -8,13 +8,13 @@
     "world"
   ],
   "presentation": "configurable",
-  "description": "RGB 涂装与自由贴花分别开关，沿用已保存的机体颜色和贴花位置。",
-  "mechanism": "原生涂装页调整颜色，纹章页调整贴纸位置；按机体身份同步到大厅、房间和战斗。保存由 World 校验归属与版本。",
+  "description": "保存 RGB 涂装与最多 20 层自由贴花，校验归属、使用条件、库存与版本。",
+  "mechanism": "先核对消耗，再在同一事务中扣除库存、保存外观和回执；同一确认凭据重试不重复扣费。服主可配置消耗规则和图层上限。",
   "dependencies": {
     "required": [
       {
         "id": "friend_unit_gift_server",
-        "minimum": "0.1.3"
+        "minimum": "0.1.4"
       }
     ],
     "conflicts": [
@@ -56,6 +56,31 @@
       "label": "启用自由贴花",
       "type": "boolean",
       "default": true,
+      "file": "mod.ini",
+      "section": "settings",
+      "audience": "user",
+      "activation": "restart_required"
+    },
+    {
+      "id": "consume_stickers",
+      "key": "ConsumeStickers",
+      "label": "新增或换用贴花时消耗纹章库存",
+      "type": "boolean",
+      "default": true,
+      "file": "mod.ini",
+      "section": "settings",
+      "audience": "user",
+      "activation": "restart_required",
+      "help": "仅新增或更换纹章款式时消耗；移动、排序、旋转和磨损不重复收费。关闭后仍需拥有或已解锁该款。"
+    },
+    {
+      "id": "max_layers",
+      "key": "MaxLayers",
+      "label": "每台机体的自由贴花上限",
+      "type": "integer",
+      "default": 20,
+      "minimum": 1,
+      "maximum": 20,
       "file": "mod.ini",
       "section": "settings",
       "audience": "user",

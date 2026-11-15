@@ -509,3 +509,10 @@ ffmpeg -i capture.mkv -t 12 -an -vf "fps=12,scale=900:-2" -c:v libwebp_anim -qua
 `docs/feature-demos.json`，不另建功能展示汇总页。Release 按实际程序包选择适用演示，保留中英文说明；
 媒体作为独立附件发布，不混入程序 ZIP。
 
+
+
+### 机体外观页面
+
+使用 `--pages-only --page-group appearance`，通过原生入口打开机体外观页面，验证服务器读取、编辑器显示与取消。需要 GameTest 客户端 0.1.45、`appearance_probe` 和配套外观组件；探针只在显式 GameTest 任务中运行，沿用真实控件、资源和通信。启用真实保存用例前准备已有测试机体和纹章库存；用例会明确核对消耗，不能把空库存或无服务端的页面当作保存成功。
+
+开发录制镜头可以启用 `BattleReviewCamera`；`BattleReviewPilot=0` 轮流观察 AI，指定测试玩家编号后按 `BattleReviewCameraSeconds` 在本机和该玩家之间切换。它只改变镜头目标，不能代替真人入房、Ready、开局、实际绘制与结算证据。机体在画面外时未产生绘制计数，不能据此宣称贴花消失，也不能算可见性通过。

@@ -26,6 +26,10 @@ int main(){
     Check(!render::OpaqueCoverage(PatchOn({0,3}),groups,3,read),"a patch that actually crosses a transparent group retains native rendering");
     alpha[2]=.2f;
     Check(!render::OpaqueCoverage(PatchOn({0}),groups,3,read),"fade or cloak alpha on the covered surface is still rejected");
+    Check(render::OpaqueCoverage(PatchOn({0}),groups,3,read,0.f),"projected layers can follow a valid native fade instead of disappearing");
+    alpha[2]=0.f;Check(render::OpaqueCoverage(PatchOn({0}),groups,3,read,0.f),"fully faded coverage remains valid while the renderer omits zero-alpha ink");
+    alpha[2]=-1.f;Check(!render::OpaqueCoverage(PatchOn({0}),groups,3,read,0.f),"negative native opacity is rejected");
+    alpha[2]=1.1f;Check(!render::OpaqueCoverage(PatchOn({0}),groups,3,read,0.f),"out-of-range native opacity is rejected");
     alpha[2]=std::numeric_limits<float>::quiet_NaN();
     Check(!render::OpaqueCoverage(PatchOn({0}),groups,3,read),"invalid covered opacity is rejected");
     alpha[2]=1.f;

@@ -14,7 +14,12 @@ BEGIN
         UnitNumber int NOT NULL,
         Revision bigint NOT NULL CHECK (Revision>0),
         Sticker1 int NOT NULL, Sticker2 int NOT NULL, Sticker3 int NOT NULL,
-        Placement1 varbinary(104) NULL, Placement2 varbinary(104) NULL, Placement3 varbinary(104) NULL
+        Placement1 varbinary(104) NULL, Placement2 varbinary(104) NULL, Placement3 varbinary(104) NULL,
+        StyleData varbinary(32) NULL
     );
 END;
+-- Preserve every existing placement and revision when upgrading the preview.
+-- NULL means the legacy bottom-to-top slot order and no surface wear.
+IF COL_LENGTH(N'dbo.sdgo_mod_surface_decal',N'StyleData') IS NULL
+    ALTER TABLE dbo.sdgo_mod_surface_decal ADD StyleData varbinary(32) NULL;
 COMMIT;

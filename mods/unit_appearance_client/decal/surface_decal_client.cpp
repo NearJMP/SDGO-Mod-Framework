@@ -1,5 +1,7 @@
 #include "native_ui.h"
 #include "render.h"
+#include "textures.h"
+#include "sdgo/layered_decal_wire.h"
 #include "visibility.h"
 #include "sdgo/surface_decal_native.h"
 #include "sdgo/surface_decal_protocol.h"
@@ -14,14 +16,19 @@
 #include <mutex>
 #include <cstring>
 #include <limits>
+#include <windowsx.h>
+#include <commctrl.h>
+#include <atomic>
 
 namespace {
 using namespace sdgo::surface_decal;
 using namespace sdgo::friend_unit_gift;
 namespace decalwire=sdgo::surface_decal::wire;
+namespace layer=sdgo::surface_decal::layers;
+namespace layerwire=layer::wire;
 const SdgoApi* g_api=nullptr;SdgoMod* g_mod=nullptr;
 native::GeometryReader geometry;
-ui::Page page;
+ui::Page page;native::Textures textures;
 std::recursive_mutex gate;
 BattleBindings battleBindings;
 RoomBindings roomBindings;
@@ -46,6 +53,11 @@ Simple modelDestroyOriginal=nullptr,pageUpdateOriginal=nullptr;
 Simple previewLock=nullptr,previewUnlock=nullptr;
 Destroy pageDestroyOriginal=nullptr;UiEvent eventOriginal=nullptr;
 Material material=nullptr;
+using InventoryPage=void(__thiscall*)(void*,int);
+InventoryPage inventoryPage=nullptr;void* inventoryTable=nullptr;
+using InventoryTick=void(__thiscall*)(void*);using InventoryAction=unsigned(__thiscall*)(void*);
+InventoryTick inventoryTick=nullptr;InventoryAction inventoryAction=nullptr;
+std::uint64_t inventoryRefreshUntil=0,inventorySettleUntil=0;
 void **renderer=nullptr,**services=nullptr;
 void *stickerTable=nullptr,*factoryTable=nullptr;
 using App=std::uint8_t*(__cdecl*)();App app=nullptr;
@@ -56,28 +68,38 @@ struct Node {native::Node surface;View view;std::uint64_t viewed=0;};
 struct Model {
     bool battle=false,room=false,geometryPending=false;
     std::uint32_t draws=0;
-    std::uint64_t uid=0,geometryRetry=0;
+    std::uint64_t uid=0,geometryRetry=0,seenAt=0;
     std::uint32_t type=0;
     std::array<std::uint32_t,3> stickers{};
     std::vector<Node> nodes;
-    std::array<Patch,3> patches{};
-    Appearance projected{};
+    std::map<std::uint32_t,Patch> patches;
+    std::map<std::uint32_t,unsigned> layerDraws;
+    layer::Design projected{};
 };
-struct Cached {Appearance appearance;std::uint64_t fetched=0;};
+struct Cached {layer::Design appearance;std::uint64_t fetched=0;};
 std::map<void*,Model> models;
 std::map<std::uint64_t,Cached> saved;
 std::set<std::uint64_t> wanted;
-Editor editor;
+layer::Editor editor;
 Appearance pageRecord{};
 std::wstring notice=L"正在连接贴花服务…";
 bool editing=false,placing=false,armed=false,dragging=false,mouseDown=false;
 unsigned selected=0;
 std::uint64_t sequence=0,pendingRequest=0,pendingUid=0,pendingAt=0,retryAt=0;
 std::uint16_t pendingCommand=0;
+bool BlockingRequest(){return pendingUid&&pendingCommand!=layerwire::get;}
 std::uintptr_t pendingToken=0,nextToken=0;
 UINT_PTR timer=0;
 HHOOK messageHook=nullptr;
 bool observing=false;
+bool legacyServer=false;
+layer::Policy policy;std::vector<layer::Stock> stock;bool catalogueWanted=false;std::uint32_t catalogueCursor=0;
+layerwire::Token quoteToken{};std::vector<layer::Cost> quotedCosts;unsigned commitRetries=0;
+bool saveQueued=false;
+layerwire::Token lastCommit{};
+HWND inputWindow=nullptr;bool pointerOwned=false;
+constexpr UINT_PTR inputSubclass=0x53444332;
+std::atomic<bool> inventoryBlocked{false};
 std::uint32_t drawCount=0;
 std::uint32_t battleDrawCount=0;
 void* preview=nullptr;std::uint8_t previewInput=0,previewPitch=0;bool inputHeld=false;
@@ -107,6 +129,29 @@ void* Service(void* table){
     if(!services||!*services)return nullptr;auto* head=Read<void*>(*services,0x44);auto* link=head?Read<void*>(head):nullptr;
     for(unsigned i=0;link&&link!=head&&i<512;++i){auto* s=Read<void*>(link,8);if(s&&Read<void*>(s)==table)return s;link=Read<void*>(link);}return nullptr;
 }
+void RefreshNativeStock(){
+    const auto now=GetTickCount64();if(now>=inventoryRefreshUntil&&now>=inventorySettleUntil)return;
+    auto* stockPage=Service(inventoryTable);
+    if(!stockPage||!Read<std::uint8_t>(stockPage,0xac)||!Read<std::uint8_t>(stockPage,0xe4)||Read<unsigned>(stockPage,0x178)!=5)return;
+    // The input guard intentionally suspends the interactive inventory update.
+    // Advance only its original page-read state while the editor owns input.
+    if(editing&&inventoryAction(static_cast<std::uint8_t*>(stockPage)+0x44)==10)inventoryTick(stockPage);
+    const auto current=Read<unsigned>(stockPage,0x180),pending=Read<unsigned>(stockPage,0x184),total=Read<unsigned>(stockPage,0x188);
+    if(pending||!current||!total||total>255)return;
+    if(now<inventoryRefreshUntil&&current<=total){
+        // Native delta zero queues a fresh request for the current page. Its
+        // original 05FF -> 09F2 path reloads real stacks and redraws the tiles.
+        inventoryPage(stockPage,0);
+        if(Read<unsigned>(stockPage,0x184)==current){inventoryRefreshUntil=0;inventorySettleUntil=now+10000;
+            if(observing)g_api->Log(g_mod,SDGO_LOG_INFO,"surface native sticker inventory refresh queued page=%u",current);}
+    }else if(now<inventorySettleUntil&&current>total){
+        // Consuming the last stack can remove the old final page. Reuse the
+        // same native navigation path for the remaining last valid page.
+        inventoryPage(stockPage,int(total)-int(current));inventorySettleUntil=now+10000;
+    }else if(now<inventorySettleUntil&&inventoryAction(static_cast<std::uint8_t*>(stockPage)+0x44)!=10){
+        inventorySettleUntil=0;
+    }
+}
 void RestoreInput(){
     // Resolve the live factory each time. Never touch the saved pointer after
     // a page transition, model destruction or a native factory reload.
@@ -124,138 +169,194 @@ void RestoreFooter(){
 }
 void Close(){
     if(editor.State()==EditState::editing)editor.Cancel();
-    editing=placing=armed=false;RestoreInput();RestoreFooter();
+    editing=placing=armed=false;saveQueued=false;quoteToken={};quotedCosts.clear();page.PointerUp();inventoryBlocked=false;RestoreInput();RestoreFooter();
+    if(pointerOwned){pointerOwned=false;if(inputWindow&&GetCapture()==inputWindow)ReleaseCapture();}
 }
-const Appearance* Authority(std::uint64_t uid){const auto i=saved.find(uid);return i==saved.end()?nullptr:&i->second.appearance;}
-const Appearance* AppearanceFor(const Model& m){
+const layer::Design* Authority(std::uint64_t uid){const auto i=saved.find(uid);return i==saved.end()?nullptr:&i->second.appearance;}
+const layer::Design* AppearanceFor(const Model& m){
     if(editing&&editor.Preview().unitSerial==m.uid)return &editor.Preview();return Authority(m.uid);
 }
-bool SameStickers(const Appearance& a,const Model& m){
-    if(a.unitSerial!=m.uid||a.unitType!=m.type)return false;
-    for(unsigned i=0;i<3;++i)if(a.slots[i].sticker!=m.stickers[i])return false;return true;
-}
-void Rebuild(Model& m,const Appearance& a){
-    if(SameContent(m.projected,a))return;
-    m.patches={};m.projected=a;
-    if(!SameStickers(a,m))return;
-    for(unsigned i=0;i<3;++i){const auto& s=a.slots[i];if(!s.positioned)continue;
-        for(const auto& n:m.nodes)if(n.surface.index==s.placement.anchor.node){
-            Project(n.surface.mesh,n.surface.geometry,n.surface.index,s.placement,m.patches[i]);break;
-        }
+bool SameStickers(const layer::Design& a,const Model& m){return a.unitSerial==m.uid&&a.unitType==m.type&&a.equipped==m.stickers;}
+void Rebuild(Model& m,const layer::Design& a){
+    if(!SameStickers(a,m)){m.patches.clear();m.projected={};return;}
+    if(layer::Same(m.projected,a))return;
+    std::map<std::uint32_t,Patch> next;
+    for(const auto& item:a.items){if(!item.placed)continue;const auto old=m.patches.find(item.id);const auto* previous=layer::Find(m.projected,item.id);
+        if(old!=m.patches.end()&&previous&&layer::SamePlacement(*previous,item)){next[item.id]=std::move(old->second);continue;}
+        Patch patch;for(const auto& n:m.nodes)if(n.surface.index==item.placement.anchor.node){
+            if(item.style.wrap)ProjectWrapped(n.surface.mesh,n.surface.geometry,n.surface.index,item.placement,patch);
+            else Project(n.surface.mesh,n.surface.geometry,n.surface.index,item.placement,patch);break;}
+        next[item.id]=std::move(patch);
     }
+    m.patches=std::move(next);m.projected=a;
+    for(auto i=m.layerDraws.begin();i!=m.layerDraws.end();)if(!layer::Find(a,i->first))i=m.layerDraws.erase(i);else ++i;
 }
-IDirect3DBaseTexture9* Texture(void* owner,unsigned slot){
-    auto* m=material(owner,slot+7,0,1);if(!m)return nullptr;
-    auto* texture=Read<void*>(m,0x58);return texture?Read<IDirect3DBaseTexture9*>(texture,0x14):nullptr;
+void InvalidateQuote(){armed=false;quoteToken={};quotedCosts.clear();}
+void RefreshStock(){stock.clear();catalogueCursor=0;catalogueWanted=true;}
+void __cdecl ReplyReceived(void*,std::uint16_t,std::int32_t,const std::uint8_t*,std::uint32_t);
+bool Request(std::uint16_t command,std::uint64_t uid,const std::uint8_t* bytes,std::uint32_t size){
+    if(!send||!transport||transport()!=1||pendingUid)return false;
+    pendingUid=uid;pendingCommand=command;pendingAt=GetTickCount64();pendingToken=++nextToken;
+    if(send(command,bytes,size,&ReplyReceived,reinterpret_cast<void*>(pendingToken)))return true;
+    pendingUid=0;pendingCommand=0;return false;
+}
+void Commit(){
+    std::uint8_t bytes[24];layerwire::Put(bytes,editor.Preview().unitSerial,8);std::copy(quoteToken.begin(),quoteToken.end(),bytes+8);
+    if(Request(layerwire::commit,editor.Preview().unitSerial,bytes,sizeof bytes))notice=L"正在保存并确认库存…";
 }
 void __cdecl ReplyReceived(void* token,std::uint16_t command,std::int32_t status,const std::uint8_t* data,std::uint32_t bytes){
     std::lock_guard<std::recursive_mutex> hold(gate);
     if(!pendingUid||pendingCommand!=command||reinterpret_cast<std::uintptr_t>(token)!=pendingToken)return;
     const auto uid=pendingUid,request=pendingRequest;pendingUid=0;pendingCommand=0;
-    Appearance authority;
-    const bool valid=status==0&&data&&bytes==decalwire::appearanceBytes+4&&decalwire::Decode(data+4,bytes-4,authority)&&authority.unitSerial==uid;
+    if(observing&&command!=layerwire::get&&command!=layerwire::catalogue)g_api->Log(g_mod,SDGO_LOG_INFO,"surface reply command=%04X status=%d bytes=%u",command,status,bytes);
+    if(command==layerwire::catalogue){
+        if(uid!=pageRecord.unitSerial||!editing)return;
+        if(status||!data||bytes<20||layerwire::Get(data,4)||layerwire::Get(data+4,4)>1||layerwire::Get(data+8,4)<1||layerwire::Get(data+8,4)>20||layerwire::Get(data+12,4)>64||bytes!=20+layerwire::Get(data+12,4)*12){notice=L"纹章库读取失败，请稍后重试";catalogueWanted=false;return;}
+        policy={layerwire::Get(data+4,4)!=0,unsigned(layerwire::Get(data+8,4))};std::uint32_t last=catalogueCursor;
+        for(unsigned i=0;i<layerwire::Get(data+12,4);++i){const auto* p=data+20+i*12;layer::Stock item{unsigned(layerwire::Get(p,4)),unsigned(layerwire::Get(p+4,4)),layerwire::Get(p+8,4)!=0};
+            if(item.sticker<=last||item.sticker>INT32_MAX||layerwire::Get(p+8,4)>1||stock.size()>=2048){stock.clear();catalogueWanted=false;notice=L"纹章库数据无效";return;}last=item.sticker;stock.push_back(item);}
+        const auto next=unsigned(layerwire::Get(data+16,4));catalogueWanted=next!=0&&next==last&&next>catalogueCursor;catalogueCursor=next;
+        page.SetStock(stock,policy);return;
+    }
+    if(command==layerwire::get&&status==static_cast<int>(WireStatus::invalid_argument)){legacyServer=true;notice=L"自由贴花需要更新配套服务端";retryAt=GetTickCount64()+30000;return;}
+    layerwire::Response response;const bool valid=!status&&layerwire::DecodeResponse(data,bytes,response)&&response.authority.unitSerial==uid;
     if(!valid){
-        if(command==decalwire::save){editor.Timeout();wanted.insert(uid);notice=L"保存结果待确认，正在重新读取";}
-        else {notice=L"服务器未就绪，稍后自动重试";wanted.insert(uid);retryAt=GetTickCount64()+10000;}
+        if(command==layerwire::commit){editor.Timeout();notice=L"结果待确认，正在查询原保存凭据";retryAt=GetTickCount64()+1000;}
+        else{InvalidateQuote();notice=L"服务暂未就绪，稍后重试";wanted.insert(uid);retryAt=GetTickCount64()+5000;}
         if(status==static_cast<int>(WireStatus::unit_unavailable)||status==static_cast<int>(WireStatus::not_authorized)){
-            saved.erase(uid);wanted.erase(uid);
-            if(editor.Preview().unitSerial==uid){Close();editor=Editor{};}
-            notice=L"机体归属已变化，请重新选择";
-        }
+            saved.erase(uid);wanted.erase(uid);if(editor.Preview().unitSerial==uid){Close();editor=layer::Editor{};}notice=L"机体归属已变化，请重新选择";}
         return;
     }
-    const auto result=decalwire::Get(data,4);
-    if(result!=0&&result!=12){if(command==decalwire::save){editor.Timeout();wanted.insert(uid);}notice=L"服务器拒绝了位置请求";return;}
-    const auto previous=saved.find(uid);
-    if(previous!=saved.end()&&(authority.revision<previous->second.appearance.revision||
-       (authority.revision==previous->second.appearance.revision&&!SameContent(authority,previous->second.appearance)))){
-        if(command==decalwire::save)editor.Timeout();notice=L"位置版本已变更，正在重新读取";wanted.insert(uid);retryAt=GetTickCount64()+1000;return;
-    }
+    policy=response.policy;page.SetStock(stock,policy);
+    const auto previous=saved.find(uid);const auto& authority=response.authority;
+    if(previous!=saved.end()&&(authority.revision<previous->second.appearance.revision||(authority.revision==previous->second.appearance.revision&&!layer::Same(authority,previous->second.appearance)))){
+        if(command==layerwire::commit)editor.Timeout();InvalidateQuote();wanted.insert(uid);retryAt=GetTickCount64()+1000;notice=L"版本发生变化，正在重新读取";return;}
     saved[uid]={authority,GetTickCount64()};
-    if(command==decalwire::save){
-        if(!editor.Acknowledge(request,result==0?sdgo::surface_decal::Reply::saved:sdgo::surface_decal::Reply::conflict,authority)){editor.Timeout();wanted.insert(uid);notice=L"正在确认服务器位置版本";}
-        else {notice=result==0?L"贴花位置已保存":L"贴纸或位置已变更，已重新读取";armed=false;}
-    }else if(editor.State()==EditState::uncertain&&editor.Preview().unitSerial==uid){
-        if(editor.Reconcile(authority))notice=L"已读取服务器确认的位置";
-    }else if(pageRecord.unitSerial==uid){
-        if(!editing)notice=L"已有贴纸可自由调整位置";
-        else if(!editor.Dirty())editor.Open(authority);
+    if(command==layerwire::quote){
+        if(!editing||editor.Preview().unitSerial!=uid)return;
+        if(response.result==layerwire::Result::ok&&layer::Same(authority,editor.Saved())){quoteToken=response.token;quotedCosts=response.costs;armed=true;page.SetCosts(quotedCosts);notice=policy.consume?L"请核对所列消耗，再确认保存":L"本次不消耗纹章，确认保存";}
+        else{InvalidateQuote();notice=response.result==layerwire::Result::insufficient?L"纹章库存不足，请调整图层":L"机体已变化，请取消后重新编辑";RefreshStock();}return;
     }
+    if(command==layerwire::commit){
+        if(response.result==layerwire::Result::ok)lastCommit=response.token;
+        if(response.result==layerwire::Result::ok&&std::any_of(response.costs.begin(),response.costs.end(),[](const auto& cost){return cost.required!=0;}))inventoryRefreshUntil=GetTickCount64()+15000;
+        const auto result=response.result==layerwire::Result::ok?sdgo::surface_decal::Reply::saved:response.result==layerwire::Result::conflict?sdgo::surface_decal::Reply::conflict:sdgo::surface_decal::Reply::rejected;
+        if(!editor.Acknowledge(request,result,authority)){editor.Timeout();wanted.insert(uid);notice=L"正在确认服务器版本";}
+        else{InvalidateQuote();notice=result==sdgo::surface_decal::Reply::saved?L"贴花和库存已保存":response.result==layerwire::Result::insufficient?L"库存变化，未扣费或保存":L"请求未保存，请重新核对";RefreshStock();}
+    }else if(editor.State()==EditState::uncertain&&editor.Preview().unitSerial==uid){if(editor.Reconcile(authority)){InvalidateQuote();notice=L"已读取服务器确认的外观";RefreshStock();}}
+    else if(pageRecord.unitSerial==uid){if(!editing)notice=L"可添加最多二十层自由贴花";else if(!editor.Dirty())editor.Open(authority);}
 }
+void Save();
 void Pump(){
-    auto* nativeSession=session?session():nullptr;
-    const int connection=nativeSession?Read<int>(nativeSession,0x14):-1;
-    const auto key=connection<0?0:(static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(nativeSession))<<32)|static_cast<std::uint32_t>(connection);
-    if(key!=sessionKey){
-        Close();editor=Editor{};saved.clear();wanted.clear();battleBindings.Clear();pageRecord={};pendingUid=0;pendingCommand=0;sessionKey=key;
-        for(auto& item:models){item.second.uid=0;item.second.projected={};item.second.patches={};}
-        notice=L"连接已变化，正在重新读取";
-    }
-    while(saved.size()>256){
-        auto oldest=saved.end();for(auto i=saved.begin();i!=saved.end();++i)if(i->first!=pageRecord.unitSerial&&i->first!=editor.Preview().unitSerial&&(oldest==saved.end()||i->second.fetched<oldest->second.fetched))oldest=i;
-        if(oldest==saved.end())break;saved.erase(oldest);
-    }
+    auto* nativeSession=session?session():nullptr;const int connection=nativeSession?Read<int>(nativeSession,0x14):-1;
+    const auto key=connection<0?0:(std::uint64_t(reinterpret_cast<std::uintptr_t>(nativeSession))<<32)|std::uint32_t(connection);
+    if(key!=sessionKey){Close();editor=layer::Editor{};saved.clear();wanted.clear();battleBindings.Clear();pageRecord={};pendingUid=0;pendingCommand=0;sessionKey=key;stock.clear();catalogueWanted=false;
+        for(auto& item:models){item.second.uid=0;item.second.projected={};item.second.patches.clear();}inventoryRefreshUntil=inventorySettleUntil=0;lastCommit={};legacyServer=false;notice=L"连接变化，正在重新读取";}
+    RefreshNativeStock();
+    while(saved.size()>256){auto oldest=saved.end();for(auto i=saved.begin();i!=saved.end();++i)if(i->first!=pageRecord.unitSerial&&i->first!=editor.Preview().unitSerial&&(oldest==saved.end()||i->second.fetched<oldest->second.fetched))oldest=i;if(oldest==saved.end())break;saved.erase(oldest);}
     while(wanted.size()>256){auto i=std::prev(wanted.end());if(*i==pageRecord.unitSerial){if(i==wanted.begin())break;--i;}wanted.erase(i);}
-    if(pendingUid)return;
+    const auto now=GetTickCount64();
+    for(const auto& item:models){const auto& m=item.second;if(!m.uid||now-m.seenAt>1500)continue;const auto cache=saved.find(m.uid);if(cache==saved.end()||now-cache->second.fetched>=2500)wanted.insert(m.uid);}
+    if(pendingUid||now<retryAt)return;
     if(!send||!transport){const auto carrier=GetModuleHandleW(L"friend_unit_gift_client.dll");if(carrier){send=reinterpret_cast<ClientExtensionSendFn>(GetProcAddress(carrier,SDGO_FRIEND_UNIT_GIFT_CLIENT_EXTENSION_SEND_EXPORT));transport=reinterpret_cast<ClientExtensionStateFn>(GetProcAddress(carrier,SDGO_FRIEND_UNIT_GIFT_CLIENT_EXTENSION_STATE_EXPORT));}}
-    if(!send||!transport||transport()!=1||wanted.empty()||GetTickCount64()<retryAt)return;
-    const auto uid=*wanted.begin();wanted.erase(wanted.begin());std::uint8_t bytes[8];decalwire::Put(bytes,uid,8);
-    pendingUid=uid;pendingCommand=decalwire::get;pendingAt=GetTickCount64();pendingToken=++nextToken;
-    if(!send(decalwire::get,bytes,sizeof bytes,&ReplyReceived,reinterpret_cast<void*>(pendingToken))){pendingUid=0;pendingCommand=0;wanted.insert(uid);retryAt=GetTickCount64()+500;}
+    if(!send||!transport||transport()!=1)return;
+    if(saveQueued&&editing&&editor.State()==EditState::editing){Save();return;}
+    if(editor.State()==EditState::uncertain&&quoteToken!=layerwire::Token{}&&commitRetries<3){++commitRetries;Commit();return;}
+    if(editing&&catalogueWanted){std::uint8_t bytes[12];layerwire::Put(bytes,pageRecord.unitSerial,8);layerwire::Put(bytes+8,catalogueCursor,4);Request(layerwire::catalogue,pageRecord.unitSerial,bytes,sizeof bytes);return;}
+    if(wanted.empty())return;const auto uid=*wanted.begin();wanted.erase(wanted.begin());std::uint8_t bytes[8];layerwire::Put(bytes,uid,8);
+    if(!Request(layerwire::get,uid,bytes,sizeof bytes)){wanted.insert(uid);retryAt=now+500;}
 }
 void Save(){
-    if(!send||!transport||transport()!=1||pendingUid){notice=L"正在通信，请稍后再保存";return;}
-    Appearance proposal;const auto request=++sequence;if(!editor.BeginSave(request,proposal))return;
-    decalwire::Bytes encoded;if(!decalwire::Encode(proposal,encoded)){editor.Timeout();return;}
-    pendingUid=proposal.unitSerial;pendingRequest=request;pendingCommand=decalwire::save;pendingAt=GetTickCount64();pendingToken=++nextToken;
-    if(!send(decalwire::save,encoded.data(),static_cast<std::uint32_t>(encoded.size()),&ReplyReceived,reinterpret_cast<void*>(pendingToken))){
-        pendingUid=0;pendingCommand=0;editor.Timeout();wanted.insert(proposal.unitSerial);notice=L"发送未确认，正在重新读取";
-    }else notice=L"等待服务器保存确认…";
+    if(observing)g_api->Log(g_mod,SDGO_LOG_INFO,"surface save armed=%u state=%u dirty=%u valid=%u pending=%04X transport=%d sequence=%llu",armed?1u:0u,unsigned(editor.State()),editor.Dirty()?1u:0u,layer::Valid(editor.Preview())?1u:0u,pendingCommand,transport?transport():-1,sequence);
+    if(pendingUid||!transport||transport()!=1){saveQueued=true;notice=L"通信完成后继续核对…";return;}
+    saveQueued=false;
+    if(armed){layer::Design proposal;pendingRequest=++sequence;if(!editor.BeginSave(pendingRequest,proposal))return;commitRetries=0;Commit();if(!pendingUid)editor.Timeout();return;}
+    layer::Design canonical;if(!layerwire::Canonical(editor.Preview(),canonical)||!editor.ReplaceCanonicalDraft(canonical)){notice=L"请先放置所有新增贴花";return;}
+    std::vector<std::uint8_t> bytes;if(!layerwire::Encode(canonical,bytes))return;
+    placing=false;RestoreInput();if(Request(layerwire::quote,canonical.unitSerial,bytes.data(),unsigned(bytes.size())))notice=L"正在核对消耗…";
 }
 bool PlaceAt(double x,double y){
-    if(!editing||!placing||editor.State()!=EditState::editing||selected>=3||!editor.Preview().slots[selected].sticker)return false;
+    const auto* old=layer::Find(editor.Preview(),selected);
+    if(!editing||!placing||armed||BlockingRequest()||editor.State()!=EditState::editing||!old)return false;
     const auto now=GetTickCount64();double nearest=std::numeric_limits<double>::infinity();Placement best;bool found=false;
-    for(auto& item:models){auto& m=item.second;if(!SameStickers(editor.Preview(),m))continue;
-        for(auto& n:m.nodes){if(now-n.viewed>150)continue;Ray ray;Hit hit;
-            if(!ScreenRay(n.view,x,y,ray)||Pick(n.surface.mesh,ray,hit)!=Result::ok)continue;
-            const auto point=Vec3{ray.origin.x+ray.direction.x/std::hypot(ray.direction.x,ray.direction.y,ray.direction.z)*hit.distance,
-                ray.origin.y+ray.direction.y/std::hypot(ray.direction.x,ray.direction.y,ray.direction.z)*hit.distance,
-                ray.origin.z+ray.direction.z/std::hypot(ray.direction.x,ray.direction.y,ray.direction.z)*hit.distance};
+    for(auto& item:models){auto& m=item.second;if(!SameStickers(editor.Preview(),m)||m.battle||m.room)continue;
+        for(auto& n:m.nodes){if(now-n.viewed>150)continue;Ray ray;Hit hit;if(!ScreenRay(n.view,x,y,ray)||Pick(n.surface.mesh,ray,hit)!=Result::ok)continue;
+            const auto length=std::hypot(ray.direction.x,ray.direction.y,ray.direction.z);
+            const Vec3 point{ray.origin.x+ray.direction.x/length*hit.distance,ray.origin.y+ray.direction.y/length*hit.distance,ray.origin.z+ray.direction.z/length*hit.distance};
             Vec3 projected;if(!Transform(point,Multiply(Multiply(n.view.world,n.view.camera),n.view.projection),projected)||projected.z<0||projected.z>1||projected.z>=nearest)continue;
-            const auto& old=editor.Preview().slots[selected];const double width=old.positioned?old.placement.width:2,height=old.positioned?old.placement.height:2,depth=old.positioned?old.placement.depth:0.6;
-            Placement p;if(MakePlacement(n.surface.mesh,hit,n.surface.geometry,n.surface.index,{1,0,0},width,height,depth,p)!=Result::ok)continue;
-            if(old.positioned)p.rotation=old.placement.rotation;
-            Patch test;if(Project(n.surface.mesh,n.surface.geometry,n.surface.index,p,test)!=Result::ok)continue;
-            best=p;nearest=projected.z;found=true;
-        }
-    }
-    if(!found)return false;armed=false;notice=L"预览中，保存后生效";return editor.Place(selected,best);
+            Placement p;if(MakePlacement(n.surface.mesh,hit,n.surface.geometry,n.surface.index,{1,0,0},old->placed?old->placement.width:2,old->placed?old->placement.height:2,old->placed?old->placement.depth:.6,p)!=Result::ok)continue;
+            if(old->placed)p.rotation=old->placement.rotation;Patch test;
+            if((old->style.wrap?ProjectWrapped(n.surface.mesh,n.surface.geometry,n.surface.index,p,test):Project(n.surface.mesh,n.surface.geometry,n.surface.index,p,test))!=Result::ok)continue;
+            best=p;nearest=projected.z;found=true;}}
+    if(!found)return false;InvalidateQuote();notice=L"预览中，核对后保存";return editor.Place(selected,best);
 }
+void ApplyCommand(const ui::Command&);
 void Action(ui::Action action){
     const auto* current=Authority(pageRecord.unitSerial);
-    if(action==ui::Action::open){
-        if(!current||pendingUid||editor.State()==EditState::uncertain)return;
-        if(!editor.Open(*current))return;editing=true;placing=false;armed=false;selected=0;
-        while(selected<2&&!current->slots[selected].sticker)++selected;
-        notice=L"选择贴纸后切换到放置模式";return;
-    }
+    if(action==ui::Action::open){if(!current||(pendingUid&&pendingCommand!=layerwire::get)||legacyServer||editor.State()==EditState::uncertain||!editor.Open(*current))return;
+        editing=true;placing=false;InvalidateQuote();inventorySettleUntil=GetTickCount64()+15000;selected=current->items.empty()?0:current->items.back().id;RefreshStock();page.Navigate(ui::Action::layers);notice=L"添加纹章，或选择图层调整";return;}
     if(!editing||editor.State()!=EditState::editing)return;
-    if(action>=ui::Action::slot0&&action<=ui::Action::slot2){const auto i=static_cast<unsigned>(action)-static_cast<unsigned>(ui::Action::slot0);if(editor.Preview().slots[i].sticker){selected=i;armed=false;}return;}
-    if(action==ui::Action::place){placing=true;notice=L"左键放置，右键拖动调整视角";return;}
-    if(action==ui::Action::orbit){placing=false;dragging=mouseDown=false;notice=L"左右拖动转向，上下拖动俯仰";return;}
-    if(action==ui::Action::cancel){Close();notice=L"已取消本次位置调整";return;}
-    if(action==ui::Action::save){if(armed)Save();else{armed=true;placing=false;RestoreInput();notice=L"请核对预览，再次点击确认保存";}return;}
-    if(action==ui::Action::reset){editor.ResetPosition(selected);armed=false;notice=L"预览恢复原生位置，保存后生效";return;}
-    auto p=editor.Preview().slots[selected].placement;if(!editor.Preview().slots[selected].positioned)return;
-    if(action==ui::Action::left)p.rotation-=0.08726646259971647;
-    else if(action==ui::Action::right)p.rotation+=0.08726646259971647;
-    else if(action==ui::Action::smaller){p.width*=0.9;p.height*=0.9;}
-    else if(action==ui::Action::larger){p.width*=1.1;p.height*=1.1;}
-    else return;
-    p.rotation=std::remainder(p.rotation,6.283185307179586);
-    if(p.width<0.05||p.height<0.05||p.width>30||p.height>30)return;
-    if(editor.Place(selected,p)){armed=false;notice=L"预览中，保存后生效";}
+    if(page.Navigate(action))return;
+    if(action==ui::Action::cancel&&armed){InvalidateQuote();notice=L"可继续编辑，尚未扣费";return;}
+    if(action==ui::Action::cancel){Close();notice=L"已取消，未消耗任何纹章";return;}
+    if(action==ui::Action::save){Save();return;}
+    if(armed||BlockingRequest())return;
+    if(action==ui::Action::add){page.Navigate(ui::Action::library);return;}
+    const auto* item=layer::Find(editor.Preview(),selected);
+    if(action==ui::Action::hideNative){editor.HideNative(editor.Preview().hiddenNative==0);notice=L"原生槽位显示已调整";return;}
+    if(!item)return;
+    if(action==ui::Action::place){placing=true;page.Navigate(ui::Action::properties);notice=L"左键放置，右键调整视角";return;}
+    if(action==ui::Action::orbit){placing=false;dragging=mouseDown=false;notice=L"拖动调整视角";return;}
+    if(action==ui::Action::duplicate){std::uint32_t added=0;if(editor.Preview().items.size()<policy.maxLayers&&editor.Duplicate(selected,added)){selected=added;page.Navigate(ui::Action::properties);notice=L"已复制，保存时核对消耗";}return;}
+    if(action==ui::Action::remove){editor.Remove(selected);selected=editor.Preview().items.empty()?0:editor.Preview().items.back().id;notice=L"已删除图层，保存后生效";return;}
+    if(action>=ui::Action::top&&action<=ui::Action::bottom){const auto& items=editor.Preview().items;const auto at=std::size_t(item-items.data()),last=items.size()-1;
+        const auto to=action==ui::Action::top?last:action==ui::Action::bottom?0:action==ui::Action::raise?std::min(last,at+1):at?at-1:0;editor.Move(selected,to);notice=L"排序已调整，保存后同步";return;}
+    if(action==ui::Action::visible){editor.Visible(selected,!item->visible);return;}
+    if(action==ui::Action::wrap||action==ui::Action::pattern){auto style=item->style;if(action==ui::Action::wrap)style.wrap=!style.wrap;else style.seed+=0x9e3779b9u;editor.StyleValue(selected,style);return;}
 }
+void ApplyCommand(const ui::Command& command){
+    if(command.action==ui::Action::none||!editing||armed||BlockingRequest()||editor.State()!=EditState::editing)return;
+    if(command.action==ui::Action::choose){const auto i=std::find_if(stock.begin(),stock.end(),[&](const auto& x){return x.sticker==command.slot;});
+        if(i==stock.end()||(policy.consume&&!i->remaining)||editor.Preview().items.size()>=policy.maxLayers)return;
+        if(!textures.Get(command.slot)){notice=L"纹章素材未就绪，请更新客户端包";return;}
+        std::uint32_t id=0;if(editor.Add(command.slot,id)){selected=id;placing=true;page.Navigate(ui::Action::properties);notice=L"在机体上点击放置新贴花";}return;}
+    if(command.action==ui::Action::select){if(layer::Find(editor.Preview(),command.slot))selected=command.slot;return;}
+    const auto* item=layer::Find(editor.Preview(),command.slot);if(!item)return;selected=command.slot;
+    if(command.action==ui::Action::reorder)editor.Move(selected,unsigned(command.value));
+    else if(command.action==ui::Action::wear){auto style=item->style;style.wear=std::uint16_t(std::lround(command.value*1000));editor.StyleValue(selected,style);}
+    else if(item->placed){auto p=item->placement;if(command.action==ui::Action::rotation)p.rotation=(command.value-.5)*6.283185307179586;
+        else if(command.action==ui::Action::size){const auto width=.2+7.8*command.value;p.height*=width/p.width;p.width=width;}else return;
+        if(p.width<=30&&p.height<=30)editor.Place(selected,p);}
+    notice=L"预览中，调整参数不重复扣费";
+}
+bool LogicalPoint(HWND window,LPARAM lparam,float& x,float& y){
+    RECT rect{};if(!GetClientRect(window,&rect)||rect.right<=0||rect.bottom<=0)return false;
+    x=GET_X_LPARAM(lparam)*1024.f/rect.right;y=GET_Y_LPARAM(lparam)*768.f/rect.bottom;return true;
+}
+LRESULT CALLBACK InputProc(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR){
+    if(message==WM_NCDESTROY){pointerOwned=false;page.PointerUp();RemoveWindowSubclass(window,&InputProc,inputSubclass);inputWindow=nullptr;return DefSubclassProc(window,message,wp,lp);}
+    if(message==WM_KILLFOCUS||message==WM_CANCELMODE||message==WM_CAPTURECHANGED){
+        std::lock_guard<std::recursive_mutex> hold(gate);const bool owned=pointerOwned;page.PointerUp();pointerOwned=false;
+        if(message!=WM_CAPTURECHANGED&&owned&&GetCapture()==window)ReleaseCapture();
+    }
+    if(message==WM_MOUSEWHEEL){std::lock_guard<std::recursive_mutex> hold(gate);POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ScreenToClient(window,&point);RECT rect{};GetClientRect(window,&rect);
+        if(rect.right>0&&rect.bottom>0&&page.Scroll(point.x*1024.f/rect.right,point.y*768.f/rect.bottom,GET_WHEEL_DELTA_WPARAM(wp)/WHEEL_DELTA))return 0;}
+    if(message==WM_LBUTTONDOWN||message==WM_LBUTTONDBLCLK||message==WM_MOUSEMOVE||message==WM_LBUTTONUP){
+        std::lock_guard<std::recursive_mutex> hold(gate);float x=0,y=0;
+        if(editing&&page.Visible()&&LogicalPoint(window,lp,x,y)){
+            if(message==WM_LBUTTONDOWN||message==WM_LBUTTONDBLCLK){
+                const auto command=page.PointerDown(x,y);ApplyCommand(command);
+                if(page.Captured()){pointerOwned=true;SetCapture(window);return 0;}
+            }else if(message==WM_MOUSEMOVE){const auto command=page.PointerMove(x,y);if(pointerOwned){ApplyCommand(command);return 0;}}
+            else if(pointerOwned){page.PointerUp();pointerOwned=false;if(GetCapture()==window)ReleaseCapture();return 0;}
+        }else if(pointerOwned){page.PointerUp();pointerOwned=false;if(GetCapture()==window)ReleaseCapture();return 0;}
+    }
+    return DefSubclassProc(window,message,wp,lp);
+}
+IDirect3DBaseTexture9* Thumbnail(unsigned sticker){
+    std::lock_guard<std::recursive_mutex> hold(gate);if(auto* texture=textures.Get(sticker)){texture->AddRef();return texture;}return nullptr;
+}
+std::wstring StickerName(unsigned sticker){std::lock_guard<std::recursive_mutex> hold(gate);return textures.Name(sticker);}
 void BindFactory(void* factory,const Appearance& record){
     auto* multi=page.Preview(factory);if(!multi)return;
     auto** first=Read<void**>(multi,0x21c);auto** end=Read<void**>(multi,0x220);
@@ -273,6 +374,7 @@ void TickPage(void* service){
     }
     auto* source=page.Footer(factory,0);
     if(!page.Attach(service,source))return;
+    page.SetThumbnailSource(&Thumbnail);page.SetNameSource(&StickerName);
     Appearance record;if(!Record(static_cast<std::uint8_t*>(service)+0xf8,record))return;
     if(pageRecord.unitSerial!=record.unitSerial||!SameContent(pageRecord,record)){
         Close();pageRecord=record;wanted.insert(record.unitSerial);notice=L"正在读取机体贴花位置…";
@@ -281,8 +383,8 @@ void TickPage(void* service){
     const auto* current=Authority(record.unitSerial);
     // Native selection/replacement remains native. A draft never uses another
     // sticker's texture, nor can it silently become a save for the new unit.
-    if(editing&&current){for(unsigned i=0;i<3;++i)if(record.slots[i].sticker!=current->slots[i].sticker){Close();wanted.insert(record.unitSerial);notice=L"请先完成原生贴纸保存";break;}}
-    if(editing&&placing){
+    if(editing&&current){for(unsigned i=0;i<3;++i)if(record.slots[i].sticker!=current->equipped[i]){Close();wanted.insert(record.unitSerial);notice=L"请先完成原生贴纸保存";break;}}
+    if(editing&&placing&&!pointerOwned){
         auto* application=app?app():nullptr;const HWND window=application?Read<HWND>(application,0x3c):nullptr;
         DWORD owner=0;GetWindowThreadProcessId(GetForegroundWindow(),&owner);
         if(window&&owner==GetCurrentProcessId()){
@@ -290,12 +392,15 @@ void TickPage(void* service){
             const bool down=(GetAsyncKeyState(VK_LBUTTON)&0x8000)!=0;
             const bool orbit=(GetAsyncKeyState(VK_RBUTTON)&0x8000)!=0;
             if(orbit)dragging=false;
-            else if(down&&!mouseDown&&!page.Contains(static_cast<float>(point.x),static_cast<float>(point.y)))dragging=PlaceAt(point.x,point.y);
+            else if(down&&!mouseDown){RECT client{};GetClientRect(window,&client);
+                const float lx=client.right>0?point.x*1024.f/client.right:0,ly=client.bottom>0?point.y*768.f/client.bottom:0;
+                if(!page.Contains(lx,ly))dragging=PlaceAt(point.x,point.y);
+            }
             else if(down&&dragging)PlaceAt(point.x,point.y);
             if(!down)dragging=false;mouseDown=down;
         }else{dragging=false;mouseDown=false;}
     }
-    const bool busy=pendingCommand==decalwire::save||editor.State()==EditState::uncertain;
+    const bool busy=saveQueued||(pendingUid&&pendingCommand!=layerwire::get)||editor.State()==EditState::uncertain;
     if(editing){
         if(footer.factory!=factory){
             RestoreFooter();footer.factory=factory;
@@ -304,10 +409,18 @@ void TickPage(void* service){
         for(auto* button:footer.buttons)if(button)Put<std::uint8_t>(button,0x162,0);
     }
     page.Render(editing,placing,selected,busy,editor.Dirty(),armed,editing?&editor.Preview():current,notice);
+    inventoryBlocked=editing&&page.Visible();
+    if(!inputWindow&&app&&app()){const HWND window=Read<HWND>(app(),0x3c);DWORD pid=0;const auto thread=GetWindowThreadProcessId(window,&pid);
+        if(pid==GetCurrentProcessId()&&thread==GetCurrentThreadId()&&SetWindowSubclass(window,&InputProc,inputSubclass,0))inputWindow=window;}
 }
 void CALLBACK Timer(HWND,UINT,UINT_PTR,DWORD){
     try{std::lock_guard<std::recursive_mutex> hold(gate);Pump();
-        if(pendingUid&&GetTickCount64()-pendingAt>15000&&pendingCommand==decalwire::save){editor.Timeout();notice=L"保存结果待确认，请保持连接";}
+        if(pendingUid&&GetTickCount64()-pendingAt>15000){
+            const auto uid=pendingUid;const auto command=pendingCommand;pendingUid=0;pendingCommand=0;pendingToken=++nextToken;
+            if(command==layerwire::commit){editor.Timeout();notice=L"保存待确认，正在重新读取";}
+            else notice=L"读取暂时超时，正在重试";
+            wanted.insert(uid);retryAt=GetTickCount64()+500;
+        }
     }catch(...){ }
 }
 void ArmTimer(){
@@ -329,7 +442,7 @@ void __stdcall CaptureHuman(const std::uint8_t* frame){
         }
         std::lock_guard<std::recursive_mutex> hold(gate);battleBindings.Replace(owner,records,count);
         for(unsigned i=0;i<count;++i)if(records[i].unitSerial){
-            if(records[i].slots[0].sticker||records[i].slots[1].sticker||records[i].slots[2].sticker)wanted.insert(records[i].unitSerial);
+            wanted.insert(records[i].unitSerial);
         }
         if(observing)g_api->Log(g_mod,SDGO_LOG_INFO,"surface native human identities count=%u",count);
     }catch(...){ }
@@ -379,6 +492,7 @@ void __stdcall PreviewInput(void* control){
     LastErrorGuard error;
     try{std::lock_guard<std::recursive_mutex> hold(gate);
         if(!editing||!inputHeld||control!=preview)return;
+        if(pointerOwned){Put<std::uint8_t>(control,0x261,0);Put<std::uint8_t>(control,0x262,0);return;}
         const bool right=Read<std::uint8_t>(control,0x261)!=0;
         const bool left=Read<std::uint8_t>(control,0x262)!=0;
         Put<std::uint8_t>(control,0x262,(right||(!placing&&left))?1:0);
@@ -460,7 +574,7 @@ void __cdecl StyleHook(void* model,const std::uint16_t* colors,std::uint16_t shi
         if(observing)g_api->Log(g_mod,SDGO_LOG_INFO,"surface style caller=%08X bound=%u battle=%u room=%u geometry=%u",static_cast<unsigned>(caller),bound?1u:0u,battle?1u:0u,room?1u:0u,static_cast<unsigned>(result));
         Model value;value.stickers=ids;value.geometryPending=battle||room||result!=native::ReadResult::ok;
         value.battle=battle;value.room=room;
-        if(bound){value.uid=record.unitSerial;value.type=record.unitType;if(ids[0]||ids[1]||ids[2])wanted.insert(value.uid);}
+        if(bound){value.uid=record.unitSerial;value.type=record.unitType;wanted.insert(value.uid);}
         if(result==native::ReadResult::ok)for(auto& n:nodes)value.nodes.push_back({std::move(n),{},0});
         if(models.size()>=256&&models.find(model)==models.end())models.erase(models.begin());
         models[model]=std::move(value);ArmTimer();
@@ -468,10 +582,10 @@ void __cdecl StyleHook(void* model,const std::uint16_t* colors,std::uint16_t shi
     SetLastError(last);
 }
 void __fastcall ModelDestroyHook(void* self,void*){{std::lock_guard<std::recursive_mutex> hold(gate);models.erase(self);}modelDestroyOriginal(self);}
-bool BattleSurfaceReady(void* owner,const Model& model,const Appearance& a,unsigned slot){
+bool BattleSurfaceReady(void* owner,const Model& model,const layer::Layer& item,const Patch& patch){
     if(!model.battle)return true;
     auto** first=Read<void**>(owner,0x124);auto** end=Read<void**>(owner,0x128);
-    const auto index=a.slots[slot].placement.anchor.node;
+    const auto index=item.placement.anchor.node;
     if(!first||end<first||end-first>4096||index>=static_cast<unsigned>(end-first))return false;
     auto* node=first[index];
     if(!node||!render::OpaqueNode(Read<std::uint8_t>(node,0x108)!=0,Read<unsigned>(node,0x204)))return false;
@@ -480,18 +594,18 @@ bool BattleSurfaceReady(void* owner,const Model& model,const Appearance& a,unsig
     if(!groups||count>256)return false;
     const auto surface=std::find_if(model.nodes.begin(),model.nodes.end(),[&](const Node& n){return n.surface.index==index;});
     if(surface==model.nodes.end())return false;
-    return render::OpaqueCoverage(model.patches[slot],surface->surface.triangleGroups,count,
+    return render::OpaqueCoverage(patch,surface->surface.triangleGroups,count,
         [&](unsigned group,float& alpha){
             const auto id=Read<unsigned>(groups,group*12+8);if(id>=7&&id<=9)return false;
             auto* m=material(owner,id,0,1);if(!m)return false;
             alpha=Read<float>(m,0x10);return true;
-        });
+        },0.f);
 }
 void RenderNode(void* self,void* entry,unsigned,bool before,bool& suppress){
     // The callback's texture bit is a state-change optimization, not visibility.
     if(Read<std::uint8_t>(self,0x108))return;
     auto* owner=Read<void*>(self,0x118);auto found=models.find(owner);if(found==models.end())return;
-    auto& m=found->second;const auto* appearance=AppearanceFor(m);if(!appearance)return;
+    auto& m=found->second;m.seenAt=GetTickCount64();const auto* appearance=AppearanceFor(m);if(!appearance)return;
     // Battle and waiting-room styling can precede asynchronous model loading.
     // Resolve geometry on the native rendering thread once the model actually
     // draws; never freeze an empty projection from its construction callback.
@@ -509,9 +623,12 @@ void RenderNode(void* self,void* entry,unsigned,bool before,bool& suppress){
     if(group>=Read<unsigned>(common,0x194))return;
     const auto* groups=Read<std::uint8_t*>(common,0x198);const auto mat=Read<unsigned>(groups,group*12+8);
     if(before){
-        if(mat>=7&&mat<=9&&!m.patches[mat-7].vertices.empty()&&Texture(owner,mat-7)&&
-           BattleSurfaceReady(owner,m,*appearance,mat-7))suppress=true;
-        return;
+        if(mat>=7&&mat<=9&&(appearance->hiddenNative&(1u<<(mat-7)))){
+            const auto source=std::find_if(appearance->items.begin(),appearance->items.end(),[&](const auto& l){return l.source==mat-7;});
+            if(source==appearance->items.end()||!source->visible)suppress=true;
+            else{const auto patch=m.patches.find(source->id);auto* device=renderer&&*renderer?Read<IDirect3DDevice9*>(*renderer,8):nullptr;
+                if(patch!=m.patches.end()&&!patch->second.vertices.empty()&&textures.Get(source->sticker)&&render::CanDraw(device,source->style)&&BattleSurfaceReady(owner,m,*source,patch->second))suppress=true;}
+        }return;
     }
     auto** first=Read<void**>(owner,0x124);auto** end=Read<void**>(owner,0x128);if(!first||end<first||end-first>4096)return;
     unsigned index=0;while(first+index!=end&&first[index]!=self)++index;
@@ -519,14 +636,18 @@ void RenderNode(void* self,void* entry,unsigned,bool before,bool& suppress){
     auto* device=renderer&&*renderer?Read<IDirect3DDevice9*>(*renderer,8):nullptr;
     if(!render::Capture(device,Read<std::array<float,16>>(self,0x130),n->view))return;
     n->viewed=GetTickCount64();
-    for(unsigned i=0;i<3;++i)if(!m.patches[i].vertices.empty()&&appearance->slots[i].placement.anchor.node==index){
-        if(!BattleSurfaceReady(owner,m,*appearance,i))continue;
-        // Draw each clipped triangle once, directly after its own native
-        // surface group. Repeated alpha blending across unrelated groups would
-        // change opacity and let later surfaces overwrite the sticker.
-        Patch part;for(const auto& vertex:m.patches[i].vertices)
+    for(const auto& item:appearance->items){const auto projected=m.patches.find(item.id);
+        if(!item.visible||!item.placed||item.placement.anchor.node!=index||projected==m.patches.end()||projected->second.vertices.empty())continue;
+        float opacity=1;
+        if(!BattleSurfaceReady(owner,m,item,projected->second))continue;
+        if(m.battle){
+            if(!render::OpaqueNode(Read<std::uint8_t>(self,0x108)!=0,Read<unsigned>(self,0x204)))continue;
+            auto* nativeMaterial=material(owner,mat,0,1);if(!nativeMaterial)continue;opacity=Read<float>(nativeMaterial,0x10);
+            if(!std::isfinite(opacity)||opacity<=0||opacity>1)continue;
+        }
+        Patch part;for(const auto& vertex:projected->second.vertices)
             if(vertex.triangle<n->surface.triangleGroups.size()&&n->surface.triangleGroups[vertex.triangle]==group)part.vertices.push_back(vertex);
-        if(!part.vertices.empty())if(auto* texture=Texture(owner,i))if(render::Draw(device,texture,part,n->view)){++drawCount;++m.draws;if(m.battle)++battleDrawCount;}
+        if(!part.vertices.empty())if(auto* texture=textures.Get(item.sticker))if(render::Draw(device,texture,part,n->view,item.style,opacity)){++drawCount;++m.draws;++m.layerDraws[item.id];if(m.battle)++battleDrawCount;}
     }
 }
 bool __fastcall IndexedHook(void* self,void*,unsigned primitive,int base,unsigned minimum,unsigned vertices,unsigned first,unsigned count){
@@ -563,7 +684,7 @@ void __fastcall UpdateHook(void* self,void*){
 }
 void* __fastcall PageDestroyHook(void* self,void*,unsigned flags){{std::lock_guard<std::recursive_mutex> hold(gate);if(page.Owner()==self){Close();page.Detach();pageRecord={};}}return pageDestroyOriginal(self,flags);}
 void __stdcall EventHook(void* service,unsigned event,std::uintptr_t second,void* control){
-    {std::lock_guard<std::recursive_mutex> hold(gate);if(page.Owner()==service){const auto action=page.Click(control);if(action!=ui::Action::none){if(event==0x101||event==0x803)Action(action);return;}}}
+    {std::lock_guard<std::recursive_mutex> hold(gate);if(page.Owner()==service){const auto action=page.Click(control);if(action!=ui::Action::none){if(event==0x101||event==0x803){if(action==ui::Action::select)ApplyCommand(page.Choose(control));else Action(action);}return;}}}
     eventOriginal(service,event,second,control);
 }
 }
@@ -580,56 +701,82 @@ extern "C" __declspec(dllexport) int __cdecl SdgoSurfaceDecalTestObserveV1(test:
     std::lock_guard<std::recursive_mutex> hold(gate);test::Snapshot s;
     s.editing=editing;s.placing=placing;s.state=static_cast<unsigned>(editor.State());s.pending=pendingCommand;s.selected=selected;s.draws=drawCount;
     s.battleDraws=battleDrawCount;
-    if(const auto* a=Authority(pageRecord.unitSerial))decalwire::Encode(*a,s.saved);
-    if(editing)decalwire::Encode(editor.Preview(),s.preview);
+    if(const auto* a=Authority(pageRecord.unitSerial))decalwire::Encode(layer::ToLegacy(*a),s.saved);
+    if(editing)decalwire::Encode(layer::ToLegacy(editor.Preview()),s.preview);
     const auto now=GetTickCount64();for(const auto& item:models)if(item.second.uid==pageRecord.unitSerial){
         for(const auto& n:item.second.nodes)if(now-n.viewed<150)++s.freshViews;
-        for(const auto& patch:item.second.patches)s.triangles+=static_cast<unsigned>(patch.vertices.size()/3);
+        for(const auto& patch:item.second.patches)s.triangles+=static_cast<unsigned>(patch.second.vertices.size()/3);
     }
     for(const auto& item:models)if(item.second.uid){
         ++s.boundModels;
         if(item.second.battle)++s.battleModels;
         const auto* a=Authority(item.second.uid);
-        if(a&&SameStickers(*a,item.second))for(unsigned i=0;i<3;++i)if(a->slots[i].positioned){++s.positionedModels;if(item.second.battle)++s.battlePositioned;}
-    }
-    static std::uint64_t diagnostic=0;
-    if(s.battleModels&&now-diagnostic>2000){diagnostic=now;
-        for(const auto& item:models)if(item.second.battle){const auto* a=Authority(item.second.uid);if(!a)continue;
-            auto** first=Read<void**>(item.first,0x124);auto** end=Read<void**>(item.first,0x128);
-            for(unsigned i=0;i<3;++i)if(a->slots[i].positioned){const auto index=a->slots[i].placement.anchor.node;
-                if(!first||end<first||end-first>4096||index>=static_cast<unsigned>(end-first)||!first[index])continue;
-                g_api->Log(g_mod,SDGO_LOG_INFO,"surface battle anchor node=%u hidden=%u flags=%08X triangles=%u ready=%u",
-                    index,Read<std::uint8_t>(first[index],0x108),Read<unsigned>(first[index],0x204),
-                    static_cast<unsigned>(item.second.patches[i].vertices.size()/3),BattleSurfaceReady(item.first,item.second,*a,i)?1u:0u);
-            }
-        }
+        if(a&&SameStickers(*a,item.second))for(const auto& layer:a->items)if(layer.placed){++s.positionedModels;if(item.second.battle)++s.battlePositioned;}
     }
     *output=s;return 1;
 }
 extern "C" __declspec(dllexport) int __cdecl SdgoSurfaceDecalTestPlaceV1(double x,double y){
     if(!NativeTest())return 0;std::lock_guard<std::recursive_mutex> hold(gate);return PlaceAt(x,y)?1:0;
 }
+extern "C" __declspec(dllexport) int __cdecl SdgoSurfaceDecalTestLayersV2(std::uint64_t uid,test::LayerSnapshot* out){
+    if(!NativeTest()||!out||out->size!=sizeof(*out)||out->version!=2)return 0;
+    std::lock_guard<std::recursive_mutex> hold(gate);test::LayerSnapshot value;
+    if(!uid)uid=pageRecord.unitSerial;const auto* a=Authority(uid);std::vector<std::uint8_t> bytes;
+    if(a&&layerwire::Encode(*a,bytes)){value.savedBytes=unsigned(bytes.size());std::copy(bytes.begin(),bytes.end(),value.saved.begin());}
+    if(editing&&editor.Preview().unitSerial==uid){value.editing=1;value.placing=placing;value.state=unsigned(editor.State());value.pending=pendingCommand;value.selected=selected;value.armed=armed;value.stockTypes=unsigned(stock.size());
+        value.previewLayers=unsigned(editor.Preview().items.size());for(const auto& c:quotedCosts)value.quotedItems+=c.required;
+        if(layerwire::Encode(editor.Preview(),bytes)){value.previewBytes=unsigned(bytes.size());std::copy(bytes.begin(),bytes.end(),value.preview.begin());}}
+    const auto* design=editing&&editor.Preview().unitSerial==uid?&editor.Preview():a;
+    if(design)for(std::size_t i=0;i<design->items.size();++i)value.layerIDs[i]=design->items[i].id;
+    for(const auto& entry:models){const auto& m=entry.second;if(m.uid!=uid)continue;++value.models;value.draws+=m.draws;if(m.room)value.roomDraws+=m.draws;if(m.battle)value.battleDraws+=m.draws;
+        if(observing&&m.battle&&design&&m.draws==0){
+            static std::map<std::uint64_t,std::uint64_t> logged;const auto now=GetTickCount64();
+            if(now-logged[uid]>5000){logged[uid]=now;auto** first=Read<void**>(entry.first,0x124);auto** end=Read<void**>(entry.first,0x128);
+                for(const auto& item:design->items){if(!item.placed||!item.visible)continue;const auto patch=m.patches.find(item.id);const auto index=item.placement.anchor.node;
+                    if(patch==m.patches.end()||!first||end<first||end-first>4096||index>=unsigned(end-first)||!first[index])continue;auto* node=first[index];auto* common=Read<void*>(node,0x11c);
+                    const auto groupCount=common?Read<unsigned>(common,0x194):0;const auto* groups=common?Read<std::uint8_t*>(common,0x198):nullptr;
+                    float alpha=1;unsigned materialID=UINT32_MAX;const auto geometryNode=std::find_if(m.nodes.begin(),m.nodes.end(),[&](const auto& n){return n.surface.index==index;});
+                    if(geometryNode!=m.nodes.end()&&!patch->second.vertices.empty()&&groups){const auto triangle=patch->second.vertices.front().triangle;
+                        if(triangle<geometryNode->surface.triangleGroups.size()){const auto group=geometryNode->surface.triangleGroups[triangle];if(group<groupCount){materialID=Read<unsigned>(groups,group*12+8);if(auto* mat=material(entry.first,materialID,0,1))alpha=Read<float>(mat,0x10);}}}
+                    g_api->Log(g_mod,SDGO_LOG_INFO,"surface undrawn uid=%llu node=%u hidden=%u flags=%08X ready=%u material=%u alpha=%.4f age=%llu",uid,index,Read<std::uint8_t>(node,0x108),Read<unsigned>(node,0x204),BattleSurfaceReady(entry.first,m,item,patch->second)?1u:0u,materialID,alpha,now-m.seenAt);break;}
+            }}
+        for(const auto& patch:m.patches)value.triangles+=unsigned(patch.second.vertices.size()/3);
+        if(design)for(std::size_t i=0;i<design->items.size();++i){const auto& item=design->items[i];const auto draw=m.layerDraws.find(item.id);if(draw!=m.layerDraws.end()){value.layerDraws[i]+=draw->second;if(m.room)value.roomLayerDraws[i]+=draw->second;if(m.battle)value.battleLayerDraws[i]+=draw->second;}
+            if(!item.visible||!item.placed||!item.style.wrap)continue;const auto patch=m.patches.find(item.id);if(patch==m.patches.end())continue;
+            const auto node=std::find_if(m.nodes.begin(),m.nodes.end(),[&](const auto& n){return n.surface.index==item.placement.anchor.node;});if(node==m.nodes.end())continue;
+            const auto& mesh=node->surface.mesh;
+            const auto normal=[&](unsigned triangle){Vec3 out;if(triangle>=mesh.triangles.size())return out;const auto ids=mesh.triangles[triangle].vertex;
+                const auto a=mesh.vertices[ids[0]],b=mesh.vertices[ids[1]],c=mesh.vertices[ids[2]];
+                out={(b.y-a.y)*(c.z-a.z)-(b.z-a.z)*(c.y-a.y),(b.z-a.z)*(c.x-a.x)-(b.x-a.x)*(c.z-a.z),(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x)};
+                const auto length=std::hypot(out.x,out.y,out.z);return length>1e-12?Vec3{out.x/length,out.y/length,out.z/length}:Vec3{};};
+            const auto anchor=normal(item.placement.anchor.triangle);std::set<unsigned> counted;
+            for(const auto& vertex:patch->second.vertices)if(counted.insert(vertex.triangle).second){const auto face=normal(vertex.triangle);if(anchor.x*face.x+anchor.y*face.y+anchor.z*face.z<.25)++value.foldedTriangles;}
+        }}
+    if(auto* stockPage=Service(inventoryTable))if(Read<unsigned>(stockPage,0x178)==5&&Read<std::uint16_t>(stockPage,0x355)==0x09f2){
+        value.nativeStockKnown=1;value.nativeStockPage=Read<unsigned>(stockPage,0x180);value.nativeStockPending=Read<unsigned>(stockPage,0x184);value.nativeStockTotal=Read<unsigned>(stockPage,0x188);Copy(static_cast<const std::uint8_t*>(stockPage)+0x355,value.nativeStock.data(),value.nativeStock.size());}
+    value.lastCommit=lastCommit;*out=value;return 1;
+}
 extern "C" __declspec(dllexport) int __cdecl SdgoSurfaceDecalTestTargetV1(std::uint64_t uid,test::TargetSnapshot* out){
     if(!NativeTest()||!out||out->size!=sizeof(*out)||out->version!=1)return 0;
     std::lock_guard<std::recursive_mutex> hold(gate);test::TargetSnapshot value;
-    const auto* a=Authority(uid);if(a)decalwire::Encode(*a,value.appearance);
+    const auto* a=Authority(uid);if(a)decalwire::Encode(layer::ToLegacy(*a),value.appearance);
     for(const auto& item:models)if(item.second.battle&&item.second.uid==uid){
         ++value.battleModels;value.draws+=item.second.draws;
         value.nodes+=static_cast<unsigned>(item.second.nodes.size());value.pendingGeometry+=item.second.geometryPending?1u:0u;
         value.matchingStickers+=a&&SameStickers(*a,item.second)?1u:0u;
-        for(const auto& p:item.second.patches)value.triangles+=static_cast<unsigned>(p.vertices.size()/3);
+        for(const auto& p:item.second.patches)value.triangles+=static_cast<unsigned>(p.second.vertices.size()/3);
     }
     *out=value;return 1;
 }
 extern "C" __declspec(dllexport) int __cdecl SdgoSurfaceDecalTestRoomV1(std::uint64_t uid,test::RoomSnapshot* out){
     if(!NativeTest()||!out||out->size!=sizeof(*out)||out->version!=1)return 0;
     std::lock_guard<std::recursive_mutex> hold(gate);test::RoomSnapshot value;
-    const auto* a=Authority(uid);if(a)decalwire::Encode(*a,value.appearance);
+    const auto* a=Authority(uid);if(a)decalwire::Encode(layer::ToLegacy(*a),value.appearance);
     for(const auto& item:models)if(item.second.room&&item.second.uid==uid){
         ++value.models;value.draws+=item.second.draws;
         value.nodes+=static_cast<unsigned>(item.second.nodes.size());value.pendingGeometry+=item.second.geometryPending?1u:0u;
         value.matchingStickers+=a&&SameStickers(*a,item.second)?1u:0u;
-        for(const auto& p:item.second.patches)value.triangles+=static_cast<unsigned>(p.vertices.size()/3);
+        for(const auto& p:item.second.patches)value.triangles+=static_cast<unsigned>(p.second.vertices.size()/3);
     }
     *out=value;return 1;
 }
@@ -637,10 +784,12 @@ int LoadDecals(const SdgoApi* api, SdgoMod* mod) {
     if(!api||!mod||!api->Symbol||!api->HookCode||!api->SettingInt||!api->host_key||std::strcmp(api->host_key,"GOnline-54BE1568-00C97000")||!api->SettingInt(mod,"DecalsEnabled",1))return 0;
     g_api=api;g_mod=mod;
     wchar_t run[64]{};observing=GetEnvironmentVariableW(L"SDGO_GAME_TEST_RUN",run,64)>0;
-    if(!geometry.Bind(api,mod)||!page.Bind(api,mod))return 0;
+    if(!geometry.Bind(api,mod)||!page.Bind(api,mod)||!textures.Bind(api,mod))return 0;
     renderer=static_cast<void**>(api->Symbol(mod,"surface_decal.renderer"));services=static_cast<void**>(api->Symbol(mod,"flow.service_managed_pointer"));
     stickerTable=api->Symbol(mod,"surface_decal.sticker_vtable");factoryTable=api->Symbol(mod,"surface_decal.factory_vtable");
     app=reinterpret_cast<App>(api->Symbol(mod,"game.app"));material=reinterpret_cast<Material>(api->Symbol(mod,"surface_decal.material"));
+    inventoryTable=api->Symbol(mod,"rgb_paint.inventory_vtable");inventoryPage=reinterpret_cast<InventoryPage>(api->Symbol(mod,"surface_decal.inventory_page"));
+    inventoryTick=reinterpret_cast<InventoryTick>(api->Symbol(mod,"surface_decal.inventory_page_tick"));inventoryAction=reinterpret_cast<InventoryAction>(api->Symbol(mod,"surface_decal.inventory_action"));
     const auto roomSymbol=[&](const char* name){return reinterpret_cast<std::uint32_t>(api->Symbol(mod,name));};
     roomBindings={roomSymbol("surface_decal.room_service"),roomSymbol("surface_decal.room_update"),roomSymbol("surface_decal.room_info"),
         roomSymbol("surface_decal.room_normal_owner"),roomSymbol("surface_decal.room_mission_owner"),
@@ -651,7 +800,7 @@ int LoadDecals(const SdgoApi* api, SdgoMod* mod) {
     previewLock=reinterpret_cast<Simple>(api->Symbol(mod,"surface_decal.preview_lock"));
     previewUnlock=reinterpret_cast<Simple>(api->Symbol(mod,"surface_decal.preview_unlock"));
     previewZoomEnd=api->Symbol(mod,"surface_decal.preview_zoom_end");
-    if(!renderer||!services||!stickerTable||!factoryTable||!app||!material||!session||!previewLock||!previewUnlock||!previewZoomEnd)return 0;
+    if(!renderer||!services||!stickerTable||!factoryTable||!app||!material||!session||!previewLock||!previewUnlock||!previewZoomEnd||!inventoryTable||!inventoryPage||!inventoryTick||!inventoryAction)return 0;
     if(api->size<offsetof(SdgoApi,process_initial_thread_id)+sizeof(DWORD)||!api->process_initial_thread_id||!api->HookSite)return 0;
     const bool hooks=api->HookCode(mod,"surface_decal.unit_style",reinterpret_cast<void*>(&StyleHook),reinterpret_cast<void**>(&styleOriginal))&&
         api->HookCode(mod,"surface_decal.model_destroy",reinterpret_cast<void*>(&ModelDestroyHook),reinterpret_cast<void**>(&modelDestroyOriginal))&&
@@ -672,4 +821,5 @@ int LoadDecals(const SdgoApi* api, SdgoMod* mod) {
     return messageHook!=nullptr;
 }
 
-void AbortDecalsLoad(){if(messageHook){UnhookWindowsHookEx(messageHook);messageHook=nullptr;}}
+bool SurfaceDecalInputBlocked(){return inventoryBlocked.load();}
+void AbortDecalsLoad(){if(messageHook){UnhookWindowsHookEx(messageHook);messageHook=nullptr;}if(timer){KillTimer(nullptr,timer);timer=0;}if(inputWindow){RemoveWindowSubclass(inputWindow,&InputProc,inputSubclass);inputWindow=nullptr;}inventoryBlocked=false;}

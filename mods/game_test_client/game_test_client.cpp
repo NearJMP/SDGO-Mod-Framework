@@ -318,6 +318,7 @@ bool unitAcquisitionUiPreviewOnly=false;
 void PublishQuietSocketReceipt(bool force=false);
 bool battleshipOnly = false, giftRequestsOnly = false, deckOnly = false, pagesOnly = false, friendsOnly = false;
 bool hangarPagesOnly = false;
+bool appearancePagesOnly = false;
 bool previewGuardOnly=false;
 bool mainHangarFault=false;
 bool storageGiftOnly=false;
@@ -601,12 +602,13 @@ bool LoadPlan() {
     wchar_t pageGroup[16]{};
     const auto pageGroupChars=GetPrivateProfileStringW(L"run",L"page_group",L"",pageGroup,16,job.c_str());
     if(pageGroupChars) {
-        if(pageGroupChars>=15 || (wcscmp(pageGroup,L"hangar")&&wcscmp(pageGroup,L"preview_guard")&&wcscmp(pageGroup,L"storage_gift")&&wcscmp(pageGroup,L"capsule")) ||
+        if(pageGroupChars>=15 || (wcscmp(pageGroup,L"hangar")&&wcscmp(pageGroup,L"preview_guard")&&wcscmp(pageGroup,L"storage_gift")&&wcscmp(pageGroup,L"capsule")&&wcscmp(pageGroup,L"appearance")) ||
            !pagesOnly || testShopCatalog || collectionDraw ||
            collectionPreviewOnly || testUnitPresentations || captureUnitPortraits || unitAcquisitionConfig.machine_kind)return false;
         storageGiftOnly=wcscmp(pageGroup,L"storage_gift")==0;
         capsulePagesOnly=wcscmp(pageGroup,L"capsule")==0;
-        hangarPagesOnly=!storageGiftOnly&&!capsulePagesOnly;
+        appearancePagesOnly=wcscmp(pageGroup,L"appearance")==0;
+        hangarPagesOnly=!storageGiftOnly&&!capsulePagesOnly&&!appearancePagesOnly;
         previewGuardOnly=wcscmp(pageGroup,L"preview_guard")==0;
     }
     const auto hangarConfirmFlag=GetPrivateProfileIntW(L"run",L"hangar_confirm_gb",0,job.c_str());
@@ -6327,6 +6329,12 @@ const SdgoGameTestCaseV1 fpsCases[]={
     {"fps.native_cap",10000,&FpsCap},
     {"fps.native_cadence",150000,&FpsCadence},
 };
+int __cdecl AppearanceEditor(const SdgoGameTestContextV1* context){
+    const auto module=GetModuleHandleW(L"appearance_probe.dll");
+    const auto poll=module?reinterpret_cast<SdgoGameTestCallbackV1>(GetProcAddress(module,"SdgoAppearanceEditorProbeV1")):nullptr;
+    if(!poll){context->Assert(0,"the sealed appearance editor observer is loaded");return SDGO_GAME_TEST_FAIL;}
+    return poll(context);
+}
 SdgoGameTestProviderV1 provider{sizeof(provider), SDGO_GAME_TEST_VERSION, "pvp-ai", "client", 7, realCases};
 std::vector<std::string> caseNames;
 std::vector<SdgoGameTestCaseV1> plannedCases;
@@ -6530,6 +6538,10 @@ void RegisterPlannedCases() {
         if(storageGiftOnly) {
             plannedCases.push_back(pageCases[5]);plannedCases.push_back(pageCases[6]);
             plannedCases.insert(plannedCases.end(),std::begin(giftOriginCases),std::end(giftOriginCases));
+            provider.count=static_cast<uint32_t>(plannedCases.size());provider.cases=plannedCases.data();return;
+        }
+        if(appearancePagesOnly){
+            plannedCases.push_back({"appearance.native_editor",180000,&AppearanceEditor});
             provider.count=static_cast<uint32_t>(plannedCases.size());provider.cases=plannedCases.data();return;
         }
         if(hangarPagesOnly) {
