@@ -9,7 +9,7 @@ ROOT=Path(__file__).resolve().parents[1]
 class AppearanceUpgradeTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
-        self.root=Path(self.temp.name)/'client';self.root.mkdir()
+        self.root=Path(self.temp.name).resolve()/'client';self.root.mkdir()
         self.host={'id':'fixture','name':'Fixture','role':'client','path':str(self.root)}
         class Workspace:
             def host(inner,identity):return self.host
