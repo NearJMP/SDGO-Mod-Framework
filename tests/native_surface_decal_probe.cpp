@@ -403,6 +403,7 @@ int PreviewInputCase(const SdgoGameTestContextV1* context,void* service){
 #include "native_layered_appearance_case.h"
 #include "native_appearance_scene_observer.h"
 #include "native_rgb_appearance_case.h"
+#include "native_rgb_entry_case.h"
 #include "native_corner_wear_case.h"
 #include "native_stock_refresh_case.h"
 int __cdecl ProbeCase(const SdgoGameTestContextV1* context) {
@@ -468,6 +469,7 @@ int __cdecl ProbeCase(const SdgoGameTestContextV1* context) {
         auto event=At<Event>(At<void*>(service),14*4);event(service,0x301,reinterpret_cast<std::uintptr_t>(control)+0x118,control);
         clicked=GetTickCount64();step=2;++tabClicks;context->Observe(rgbTest?"native paint tab invoked":"native sticker tab invoked");return SDGO_GAME_TEST_WAIT;
     }
+    if(GetEnvironmentVariableW(L"SDGO_RGB_ENTRY_TEST",nullptr,0)){step=3;return RgbEntryCase(context);}
     if(GetEnvironmentVariableW(L"SDGO_APPEARANCE_RGB_TEST",nullptr,0)){
         auto* rgbPage=Service("rgb_paint.page_vtable");if(!rgbPage||!SafeAt<std::uint8_t>(rgbPage,0xac))return SDGO_GAME_TEST_WAIT;
         auto* rgbRoot=SafeAt<void*>(rgbPage,0xd0);if(!rgbRoot||!SafeAt<std::uint8_t>(rgbRoot,0x162))return SDGO_GAME_TEST_WAIT;
@@ -509,6 +511,13 @@ int __cdecl ProbeCase(const SdgoGameTestContextV1* context) {
             test::LayerSnapshot snapshot;layers::Design authority;
             if(!observe||!observe(0,&snapshot)||!layers::wire::Decode(snapshot.saved.data(),snapshot.savedBytes,authority))return SDGO_GAME_TEST_WAIT;
             if(authority.items.empty()||!snapshot.triangles||snapshot.draws<100)return SDGO_GAME_TEST_WAIT;
+            wchar_t expectedPath[MAX_PATH]{};
+            if(GetEnvironmentVariableW(L"SDGO_SURFACE_EXPECTED_DESIGN",expectedPath,MAX_PATH)){
+                FILE* file=nullptr;if(_wfopen_s(&file,expectedPath,L"rb")||!file)return SDGO_GAME_TEST_FAIL;
+                std::array<std::uint8_t,layers::wire::maxBytes+1> expected{};const auto bytes=std::fread(expected.data(),1,expected.size(),file);std::fclose(file);
+                const bool exact=bytes==snapshot.savedBytes&&!std::memcmp(expected.data(),snapshot.saved.data(),bytes);
+                context->Assert(exact,"fresh process reloads the exact server-confirmed design bytes and revision");if(!exact)return SDGO_GAME_TEST_FAIL;
+            }
             context->Assert(1,"a fresh native process reads and draws the independently saved layer design");
         }
 

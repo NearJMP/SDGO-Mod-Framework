@@ -41,16 +41,21 @@ void Page::RestoreDraw()noexcept{
     __try{if(root_&&Read<void**>(root_)==&drawTable_[1])Put(root_,0,originalDrawTable_);}
     __except(EXCEPTION_EXECUTE_HANDLER){}
 }
-void Page::Detach(){RestoreDraw();if(drawing_==this)drawing_=nullptr;service_=root_=table_=nullptr;originalDraw_=nullptr;originalDrawTable_=nullptr;controls_.clear();originals_.clear();editing_=false;gesture_.Cancel();}
+void Page::Detach(){RestoreDraw();if(drawing_==this)drawing_=nullptr;service_=root_=table_=nullptr;originalDraw_=nullptr;originalDrawTable_=nullptr;controls_.clear();originals_.clear();editing_=false;PointerUp();}
 void Page::Position(ControlState& c,Rect r){c.rect=r;c.width=static_cast<int>(r.w);Put<float>(c.pointer,0x148,r.x);Put<float>(c.pointer,0x14c,r.y);Put<int>(c.pointer,0x154,c.width);Put<int>(c.pointer,0x158,static_cast<int>(r.h));}
 bool Page::Add(void* source,const wchar_t* name,const wchar_t* caption,Action action,int x,int y,int width,bool edit,int height){
     const std::wstring key=name;const auto native=View(key);bind_.add(root_,&native,x,y,width,height,0);
     auto* control=bind_.find(root_,&native,4);if(!control||Read<void*>(control)!=bind_.buttonVtable||Read<void*>(control,0x15c)!=root_)return false;
     Put<std::uint8_t>(control,0x162,0);Put<std::uint8_t>(control,0x167,0);Put<std::uint8_t>(control,0x168,0);
     ControlState state;state.pointer=control;state.action=action;state.width=width;state.edit=edit;state.name=name;state.rect={float(x),float(y),float(width),float(height)};state.color=text;controls_.push_back(std::move(state));
-    // Only the native-mode entry retains the original fixed-width sprite.
+    // Only the entry uses native button skins. Editor clicks are dispatched
+    // from pointer coordinates; fixed-width native sprites must not be loaded.
     if(action==Action::open){auto** skins=Read<std::uint8_t**>(source,0x1a4);auto** end=Read<std::uint8_t**>(source,0x1a8);
-        if(!skins||end-skins<3||end-skins>16)return false;for(unsigned i=0;i<3;++i){if(!skins[i])return false;bind_.skin(control,reinterpret_cast<String*>(skins[i]+4),Read<std::uint8_t>(skins[i],0x44),Read<std::uint32_t>(skins[i],0x3c),Read<std::uint32_t>(skins[i],0x40));}}
+        if(!skins||end-skins<3||end-skins>16)return false;for(unsigned i=0;i<3;++i){if(!skins[i])return false;bind_.skin(control,reinterpret_cast<String*>(skins[i]+4),Read<std::uint8_t>(skins[i],0x44),Read<std::uint32_t>(skins[i],0x3c),Read<std::uint32_t>(skins[i],0x40));}
+        auto** first=Read<void**>(control,0x1a4);auto** last=Read<void**>(control,0x1a8);
+        if(!first||last!=first+3)return false;
+        for(unsigned i=0;i<3;++i)if(!first[i]||!Read<void*>(first[i]))return false;
+    }
     Text(controls_.back(),caption);return true;
 }
 void Page::Text(ControlState& c,const std::wstring& caption){
@@ -73,7 +78,7 @@ unsigned& Page::Offset(){return armed_?quoteOffset_:tab_==Tab::library?stockOffs
 std::wstring Page::Label(unsigned sticker)const{auto label=name_?name_(sticker):std::wstring{};return label.empty()?L"纹章 "+std::to_wstring(sticker):label;}
 void Page::SetStock(const std::vector<layers::Stock>& stock,layers::Policy policy){stock_=stock;policy_=policy;}
 bool Page::Navigate(Action action){
-    if(!armed_&&(action==Action::layers||action==Action::properties||action==Action::library)){tab_=action==Action::layers?Tab::layers:action==Action::properties?Tab::properties:Tab::library;gesture_.Cancel();return true;}
+    if(!armed_&&(action==Action::layers||action==Action::properties||action==Action::library)){tab_=action==Action::layers?Tab::layers:action==Action::properties?Tab::properties:Tab::library;PointerUp();return true;}
     if(action==Action::previous||action==Action::next){auto& at=Offset();const auto last=Count()>layout_.visibleRows?Count()-layout_.visibleRows:0;
         at=action==Action::previous?(at>layout_.visibleRows?at-layout_.visibleRows:0):std::min(last,at+layout_.visibleRows);return true;}return false;
 }
@@ -115,7 +120,32 @@ bool Page::Attach(void* service,void* source){
 }
 bool Page::Visible()const{return service_&&Read<void*>(service_)==table_&&Read<void*>(service_,0xd0)==root_&&Read<std::uint8_t>(service_,0xac)&&Read<std::uint8_t>(root_,0x162);}
 bool Page::Contains(float x,float y)const{if(!Visible())return false;return Rect{Read<float>(root_,0x148),Read<float>(root_,0x14c),layout_.width,layout_.height}.Contains(x,y);}
-Command Page::PointerDown(float x,float y){if(!Visible()||!editing_)return {};x-=Read<float>(root_,0x148);y-=Read<float>(root_,0x14c);hoverX_=x;hoverY_=y;return gesture_.Down(layout_,tab_,offset_,x,y,appearance_,selected_,busy_||armed_);}
+void* Page::ButtonAt(float x,float y)const{
+    if(!editing_||!Contains(x,y))return nullptr;
+    x-=Read<float>(root_,0x148);y-=Read<float>(root_,0x14c);
+    for(const auto& c:controls_)if(c.edit&&c.action!=Action::none&&c.rect.Contains(x,y)&&Click(c.pointer)!=Action::none)return c.pointer;
+    return nullptr;
+}
+Command Page::ButtonCommand(void* button)const{
+    const auto action=Click(button);
+    return action==Action::select?Choose(button):Command{action,0,0};
+}
+Command Page::PointerDown(float x,float y){
+    PointerUp();if(!editing_||!Contains(x,y))return {};
+    pointerActive_=true;pressedButton_=ButtonAt(x,y);pressedCommand_=ButtonCommand(pressedButton_);
+    x-=Read<float>(root_,0x148);y-=Read<float>(root_,0x14c);hoverX_=x;hoverY_=y;
+    const auto command=gesture_.Down(layout_,tab_,offset_,x,y,appearance_,selected_,busy_||armed_);
+    if(gesture_.Captured())pressedButton_=nullptr;
+    return command;
+}
+Command Page::PointerRelease(float x,float y){
+    Command result;
+    if(pointerActive_&&pressedButton_&&ButtonAt(x,y)==pressedButton_){
+        const auto current=ButtonCommand(pressedButton_);
+        if(current.action==pressedCommand_.action&&current.slot==pressedCommand_.slot)result=current;
+    }
+    PointerUp();return result;
+}
 Command Page::PointerMove(float x,float y){
     if(!Visible())return {};x-=Read<float>(root_,0x148);y-=Read<float>(root_,0x14c);hoverX_=x;hoverY_=y;
     if(gesture_.Captured()&&tab_==Tab::layers&&GetTickCount64()-scrollAt_>160){const auto last=Count()>layout_.visibleRows?Count()-layout_.visibleRows:0;
@@ -131,7 +161,7 @@ Command Page::Choose(void* control)const{
 }
 void Page::Render(bool edit,bool placing,unsigned id,bool busy,bool dirty,bool armed,const layers::Design* a,const std::wstring& status){
     if(!service_||Read<void*>(service_)!=table_||Read<void*>(service_,0xd0)!=root_){Detach();return;}
-    if(edit!=editing_){for(const auto& o:originals_){Put<std::uint8_t>(o.pointer,0x162,edit?0:o.visible);Put<float>(o.pointer,0x148,o.x);Put<float>(o.pointer,0x14c,o.y);}gesture_.Cancel();}
+    if(edit!=editing_){for(const auto& o:originals_){Put<std::uint8_t>(o.pointer,0x162,edit?0:o.visible);Put<float>(o.pointer,0x148,o.x);Put<float>(o.pointer,0x14c,o.y);}PointerUp();}
     editing_=edit;placing_=placing;selected_=id;busy_=busy;dirty_=dirty;armed_=armed;hasAppearance_=a!=nullptr;if(a)appearance_=*a;
     if(edit)for(const auto& o:originals_)Put<std::uint8_t>(o.pointer,0x162,0);
     if(armed_||tab_!=Tab::properties){auto& at=Offset();at=std::min(at,Count()>layout_.visibleRows?Count()-layout_.visibleRows:0);}

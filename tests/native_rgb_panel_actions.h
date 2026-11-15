@@ -8,6 +8,7 @@ bool ExercisePanel(const SdgoGameTestContextV1* context,void* page){
     auto type=[&](const wchar_t* text){for(;*text;++text)SendMessageW(hwnd,WM_CHAR,*text,0);SendMessageW(hwnd,WM_KEYDOWN,VK_RETURN,0);};
     auto select=[&](unsigned i){auto* c=At<void*>(page,0x14c+i*4);float x=At<float>(c,0x148),y=At<float>(c,0x14c);for(auto* p=At<void*>(c,0x15c);p;p=At<void*>(p,0x15c)){x+=At<float>(p,0x148);y+=At<float>(p,0x14c);}click(static_cast<int>(x)+25,static_cast<int>(y)+25);};
     SdgoRgbPaintObservationV1 originalState;ObservePanel(originalState);
+    if(!originalState.editing){click(940,640);if(!ObservePanel(originalState)||!originalState.editing)return false;}
     click(970,410);type(L"256");SdgoRgbPaintObservationV1 invalid;ObservePanel(invalid);
     bool ok=invalid.invalid_input&&std::memcmp(invalid.rgb,originalState.rgb,sizeof invalid.rgb)==0;
     context->Assert(ok,"native RGB numeric input rejects 256 without changing preview");

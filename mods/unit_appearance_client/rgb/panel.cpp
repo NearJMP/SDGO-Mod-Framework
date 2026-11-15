@@ -3,13 +3,13 @@
 #include <cmath>
 
 namespace sdgo::rgb_paint::ui {
-bool Panel::Open(const Snapshot& value) {
+bool Panel::Open(const Snapshot& value,bool edit) {
     if(!value.identity.session||!value.identity.unit)return false;
     editor.Close();
     if(!editor.Open(value))return false;
-    editing=true;focus=drag_=-1;invalid=false;buffer.clear();Reload();return true;
+    editing=edit;focus=drag_=-1;invalid=false;buffer.clear();Reload();return true;
 }
-void Panel::Close(){editor.Close();focus=drag_=-1;invalid=false;buffer.clear();}
+void Panel::Close(){editing=false;editor.Close();focus=drag_=-1;invalid=false;buffer.clear();}
 void Panel::Reload(){picker.Set(editor.preview()[editor.selected()].value_or(Rgb{255,255,255}));}
 bool Panel::Select(unsigned region){if(!editor.Select(region))return false;focus=-1;invalid=false;Reload();return true;}
 void Panel::Restore(){editor.Restore();Reload();focus=drag_=-1;invalid=false;++changes;}

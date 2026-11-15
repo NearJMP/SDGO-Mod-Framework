@@ -44,12 +44,16 @@ Draw originalDraw=nullptr;
 App app=nullptr;
 void **services=nullptr,**renderer=nullptr,*factoryTable=nullptr,*pageTable=nullptr;
 void *page=nullptr,*root=nullptr,*saveButton=nullptr;
+void* modeAnchor=nullptr;
+ui::Rect modeAnchorOrigin{};
+bool modeAnchorReady=false;
+std::uint64_t modeAnchorChanged=0;
 HWND window=nullptr;
 constexpr UINT_PTR kSubclass=0x52474231;
 void* drawTable[162]{};
 void** originalTable=nullptr;
 unsigned frames=0;
-bool active=false,lastEditing=false;
+bool active=false,lastEditing=false,nativeHidden=false;
 std::uint8_t saveInput=0;
 std::uint8_t saveVisible=0;
 Record pageRecord;
@@ -58,7 +62,7 @@ std::optional<Save> saveRequest;
 unsigned reconcileAfterReads=0;
 std::wstring notice=L"正在读取服务器涂装…";
 struct Hidden {void* pointer;std::uint8_t visible,input;};
-struct Label {void* pointer;int width;std::wstring text;};
+struct Label {void* pointer;int x,y,width;std::wstring text;};
 std::vector<Hidden> hidden;
 std::vector<Label> labels;
 std::uint32_t font=1;
@@ -86,6 +90,23 @@ ui::Rect ControlRect(void* c){
     for(unsigned i=0;parent&&i<8;++i){x+=Read<float>(parent,0x148);y+=Read<float>(parent,0x14c);parent=Read<void*>(parent,0x15c);}
     return {x,y,static_cast<float>(Read<int>(c,0x154)),static_cast<float>(Read<int>(c,0x158))};
 }
+void PositionModeButton(){
+    panel.layout.toggle=ui::Layout{}.toggle;
+    if(!modeAnchor)return;
+    auto* inventory=Service(inventoryTable);
+    if(!inventory||Read<void*>(inventory,0x108)!=modeAnchor)return;
+    const auto current=ControlRect(modeAnchor);
+    if(!modeAnchorReady){
+        const auto now=GetTickCount64();
+        if(std::fabs(current.x-modeAnchorOrigin.x)>.01f||std::fabs(current.y-modeAnchorOrigin.y)>.01f){modeAnchorOrigin=current;modeAnchorChanged=now;}
+        // Left and right native panels finish their animations independently.
+        // Establish the right panel's resting origin before showing this entry.
+        if(!root||std::fabs(Read<float>(root,0x148))>.5f||now-modeAnchorChanged<100){panel.layout.toggle={};return;}
+        modeAnchorReady=true;
+    }
+    panel.layout.toggle.x+=current.x-modeAnchorOrigin.x;
+    panel.layout.toggle.y+=current.y-modeAnchorOrigin.y;
+}
 Snapshot NativeSnapshot(void* self){
     Record value;sync::ReadNative(static_cast<std::uint8_t*>(self)+0x17c,value);return value.state;
 }
@@ -102,7 +123,14 @@ void ApplyPreview(const Palette& colors){
         unlockPreview(*it);
     }
 }
-void NativeVisibility(bool show){for(const auto& c:hidden){Put<std::uint8_t>(c.pointer,0x162,show?c.visible:0);Put<std::uint8_t>(c.pointer,0x167,show?c.input:0);}if(saveButton){Put<std::uint8_t>(saveButton,0x167,show?saveInput:0);Put<std::uint8_t>(saveButton,0x162,show?saveVisible:0);}}
+void NativeVisibility(bool show){
+    if(show&&!nativeHidden)return;
+    if(!show&&!nativeHidden){
+        for(auto& c:hidden){c.visible=Read<std::uint8_t>(c.pointer,0x162);c.input=Read<std::uint8_t>(c.pointer,0x167);}
+        if(saveButton){saveInput=Read<std::uint8_t>(saveButton,0x167);saveVisible=Read<std::uint8_t>(saveButton,0x162);}
+    }
+    nativeHidden=!show;
+    for(const auto& c:hidden){Put<std::uint8_t>(c.pointer,0x162,show?c.visible:0);Put<std::uint8_t>(c.pointer,0x167,show?c.input:0);}if(saveButton){Put<std::uint8_t>(saveButton,0x167,show?saveInput:0);Put<std::uint8_t>(saveButton,0x162,show?saveVisible:0);}}
 void InventoryVisibility(bool show){
     auto* service=Service(inventoryTable);auto* dialog=service?Read<void*>(service,0x108):nullptr;
     if(hiddenInventory&&hiddenInventory!=dialog)hiddenInventory=nullptr;
@@ -123,11 +151,22 @@ bool AddLabel(const wchar_t* name,int x,int y,int width){
     auto* c=uiBindings.find(root,&native,4);
     if(!c||Read<void*>(c)!=uiBindings.buttonVtable||Read<void*>(c,0x15c)!=root)return false;
     Put<std::uint8_t>(c,0x162,0);Put<std::uint8_t>(c,0x167,0);Put<std::uint8_t>(c,0x168,0);
-    labels.push_back({c,width,{}});return true;
+    labels.push_back({c,x,y,width,{}});return true;
 }
 void Captions(){
     if(labels.size()!=13)return;
-    for(unsigned i=0;i<labels.size();++i)Put<std::uint8_t>(labels[i].pointer,0x162,active&&(panel.editing||i==12)?1:0);
+    PositionModeButton();
+    // The mode button follows the right inventory panel. Its native label is
+    // owned by the left paint page, so convert from screen to that parent.
+    const auto pageRect=ControlRect(root);
+    for(unsigned i=0;i<labels.size();++i){
+        auto& label=labels[i];
+        const float x=i==12?panel.layout.toggle.x+17:static_cast<float>(label.x);
+        const float y=i==12?panel.layout.toggle.y+1:static_cast<float>(label.y);
+        Put<float>(label.pointer,0x148,x-pageRect.x);
+        Put<float>(label.pointer,0x14c,y-pageRect.y);
+        Put<std::uint8_t>(label.pointer,0x162,active&&(panel.editing||i==12)&&(i!=12||panel.layout.toggle.w>0)?1:0);
+    }
     LabelText(0,L"区域 "+std::to_wstring(panel.editor.selected()+1)+L" · RGB 颜色");
     const auto color=panel.picker.color();const unsigned rgb[]={color.r,color.g,color.b};
     for(unsigned i=0;i<3;++i){LabelText(1+i,std::wstring(1,L"RGB"[i]));LabelText(4+i,panel.focus==static_cast<int>(i)?panel.buffer:std::to_wstring(rgb[i]));}
@@ -149,6 +188,7 @@ void Fill(ui::Rect r,DWORD c){Quad(r,c,c,c,c);}
 void Border(ui::Rect r,DWORD c,float width=1){Fill({r.x,r.y,r.w,width},c);Fill({r.x,r.y+r.h-width,r.w,width},c);Fill({r.x,r.y,width,r.h},c);Fill({r.x+r.w-width,r.y,width,r.h},c);}
 void DrawPanel(bool finalColors=false){
     if(!active||!Visible()||!renderer||!*renderer)return;
+    PositionModeButton();
     device=Read<IDirect3DDevice9*>(*renderer,8);if(!device)return;
     IDirect3DSurface9* target=nullptr;D3DSURFACE_DESC desc{};
     if(FAILED(device->GetRenderTarget(0,&target))||!target)return;
@@ -197,7 +237,7 @@ void DrawPanel(bool finalColors=false){
         if(!finalColors)Fill(panel.layout.save,0xff163c52);Border(panel.layout.save,authorityReady&&panel.editor.dirty()?0xff6ee7ff:0xff306b86);
         for(unsigned i=0;i<6;++i){auto r=panel.layout.regions[i];if(r.w<1)continue;Fill(r,panel.editor.preview()[i]?Color(*panel.editor.preview()[i]):0xff173443);Border(r,i==panel.editor.selected()?0xffffffff:0xff42c6dd,i==panel.editor.selected()?2.f:1.f);}
     }
-    if(!finalColors)Fill(panel.layout.toggle,0xff163c52);Border(panel.layout.toggle,0xff3eaad0);
+    if(panel.layout.toggle.w>0){if(!finalColors)Fill(panel.layout.toggle,0xff163c52);Border(panel.layout.toggle,0xff3eaad0);}
     saved->Apply();saved->Release();if(haveStream)device->SetStreamSource(0,stream,streamOffset,streamStride);if(stream)stream->Release();++frames;
 }
 HRESULT __fastcall EndSceneHook(void* self,void*){DrawPanel(true);return originalEndScene(self);}
@@ -221,7 +261,7 @@ void Detach(bool restore){
     ResetPointer();
     InventoryVisibility(true);
     if(restore&&root){NativeVisibility(true);for(auto& label:labels)Put<std::uint8_t>(label.pointer,0x162,0);if(Read<void**>(root)==&drawTable[1])Put<void**>(root,0,originalTable);}
-    sync::Preview(0,nullptr);authorityReady=false;saveRequest.reset();panel.Close();hidden.clear();labels.clear();active=lastEditing=false;page=root=saveButton=nullptr;
+    sync::Preview(0,nullptr);authorityReady=false;saveRequest.reset();panel.Close();hidden.clear();labels.clear();active=lastEditing=nativeHidden=false;page=root=saveButton=modeAnchor=nullptr;panel.layout.toggle=ui::Layout{}.toggle;
 }
 bool Attach(void* self){
     auto* current=Read<void*>(self,0xd0);if(page==self&&root==current)return true;
@@ -230,6 +270,9 @@ bool Attach(void* self){
     Detach(false);auto* factory=Service(factoryTable);auto* source=factory?Read<void*>(factory,0xe4):nullptr;
     if(!current||!source||Read<void*>(source)!=uiBindings.buttonVtable)return false;
     page=self;root=current;saveButton=source;saveInput=Read<std::uint8_t>(source,0x167);saveVisible=Read<std::uint8_t>(source,0x162);
+    auto* inventory=Service(inventoryTable);modeAnchor=inventory?Read<void*>(inventory,0x108):nullptr;
+    modeAnchorReady=false;modeAnchorChanged=GetTickCount64();
+    if(modeAnchor)modeAnchorOrigin=ControlRect(modeAnchor);
     auto** text=Read<std::uint8_t**>(source,0x190);auto** end=Read<std::uint8_t**>(source,0x194);if(text&&end>text&&*text)font=Read<unsigned>(*text,0x6c);
     auto* head=Read<void*>(root,0x23c);auto* link=head?Read<void*>(head):nullptr;
     for(unsigned i=0;link&&link!=head&&i<256;++i){auto* c=Read<void*>(link,8);if(c){const auto name=Read<String>(c,0x118);if(name.length<128){const std::wstring key(name.capacity<8?reinterpret_cast<const wchar_t*>(&name.data):name.data.pointer,name.length);bool slot=false;for(unsigned j=0;j<6;++j){const auto n=std::to_wstring(j);slot=slot||key==L"PaletteBtn"+n||key==L"PaletteIcon"+n||key==L"NoneIcon"+n||key==L"OutLineIcon"+n||key==L"DragIcon"+n||key==L"RGBStatic"+n;}if(slot)hidden.push_back({c,Read<std::uint8_t>(c,0x162),Read<std::uint8_t>(c,0x167)});}}link=Read<void*>(link);}
@@ -251,7 +294,7 @@ bool Attach(void* self){
 void SyncEditing(){
     if(panel.editing!=lastEditing){
         if(!panel.editing){sync::Preview(0,nullptr);ApplyPreview(panel.editor.saved().colors);}
-        else if(page){Record current;if(sync::Current(pageRecord.state.identity.unit,current))panel.Open(current.state);else {panel.Open(NativeSnapshot(page));authorityReady=false;}}
+        else if(page){Record current;if(sync::Current(pageRecord.state.identity.unit,current))panel.Open(current.state,true);else {panel.Open(NativeSnapshot(page),true);authorityReady=false;}}
         lastEditing=panel.editing;
     }
     NativeVisibility(!panel.editing);InventoryVisibility(!panel.editing);Captions();
@@ -276,6 +319,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,
     if(message==WM_NCDESTROY){ResetPointer();RemoveWindowSubclass(hwnd,&WindowProc,kSubclass);window=nullptr;return DefSubclassProc(hwnd,message,wp,lp);}
     if(message==WM_KILLFOCUS||message==WM_CANCELMODE||(message==WM_CAPTURECHANGED&&pointerButtons)){ResetPointer();panel.focus=-1;}
     if(active&&Visible()){
+        PositionModeButton();
         bool handled=false;
         unsigned button=0;bool down=false,up=false;
         switch(message){
@@ -297,7 +341,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,
                     handled=pointerButtons!=0||inside;
                     if(button==1){
                         if(panel.editing&&panel.layout.save.Contains(x,y)){SaveClick();handled=true;}
-                        else if(panel.editing&&!authorityReady){notice=L"正在读取服务器涂装…";}
+                        else if(panel.editing&&!authorityReady&&!panel.layout.toggle.Contains(x,y)){notice=L"正在读取服务器涂装…";}
                         else handled=panel.Down(x,y)||handled;
                     }
                     if(handled){pointerButtons|=button;if(GetCapture()!=hwnd)SetCapture(hwnd);}
@@ -328,9 +372,9 @@ void Tick(void* self){
     if(!active||snapshot.identity!=panel.editor.saved().identity){pageRecord=nativeRecord;panel.Open(snapshot);authorityReady=false;saveRequest.reset();notice=L"正在读取服务器涂装…";active=true;lastEditing=panel.editing;}
     sync::Want(snapshot.identity.unit,true);Record authority;
     if(sync::Current(snapshot.identity.unit,authority)&&authority.type==nativeRecord.type&&authority.native==nativeRecord.native){
-        if(!authorityReady){pageRecord=authority;panel.Open(authority.state);authorityReady=true;notice=L"调色后保存 · 全服同步";}
+        if(!authorityReady){pageRecord=authority;panel.Open(authority.state,panel.editing);authorityReady=true;notice=L"调色后保存 · 全服同步";}
         else if(panel.editor.state()==State::uncertain){sync::Observation observation;if(sync::Observe(snapshot.identity.unit,observation)&&observation.reads>reconcileAfterReads&&panel.editor.Reconcile(authority.state)){pageRecord=authority;saveRequest.reset();panel.Select(static_cast<unsigned>(panel.editor.selected()));notice=L"已读取服务器确认的涂装";}}
-        else if(panel.editor.state()==State::editing&&!panel.editor.dirty()&&authority.state.revision>panel.editor.saved().revision){pageRecord=authority;panel.Open(authority.state);notice=L"涂装已同步";}
+        else if(panel.editor.state()==State::editing&&!panel.editor.dirty()&&authority.state.revision>panel.editor.saved().revision){pageRecord=authority;panel.Open(authority.state,panel.editing);notice=L"涂装已同步";}
     }
     if(!window&&app&&app()){const auto hwnd=Read<HWND>(app(),0x3c);DWORD pid=0;const auto thread=GetWindowThreadProcessId(hwnd,&pid);if(pid==GetCurrentProcessId()&&thread==GetCurrentThreadId()&&SetWindowSubclass(hwnd,&WindowProc,kSubclass,0))window=hwnd;}
     NativeVisibility(!panel.editing);InventoryVisibility(!panel.editing);Captions();if(panel.editing){sync::Preview(snapshot.identity.unit,&panel.editor.preview());ApplyPreview(panel.editor.preview());}

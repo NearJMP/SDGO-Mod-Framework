@@ -17,7 +17,7 @@ struct Layout {
 };
 class Panel {
 public:
-    bool Open(const Snapshot&);
+    bool Open(const Snapshot&,bool edit=false);
     void Close();
     bool Down(float x,float y);
     bool Contains(float x,float y) const;
@@ -32,7 +32,7 @@ public:
     Editor editor;
     Picker picker;
     int focus=-1;
-    bool editing=true,invalid=false;
+    bool editing=false,invalid=false;
     std::wstring buffer;
     unsigned changes=0;
     bool Dragging() const {return drag_>=0;}

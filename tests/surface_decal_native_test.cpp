@@ -191,6 +191,22 @@ int main() {
           Project(nodes[0].mesh,nodes[0].geometry,0,p,patch)==Result::ok&&patch.vertices.size()==6,
           "a projected sticker crosses adjacent expanded native faces");
 
+    {
+        Fixture painted,helper;
+        std::array<void*,2> mixed{{helper.node.data(),painted.node.data()}};
+        Put(painted.model,0x124,mixed.data());Put(painted.model,0x128,mixed.data()+2);Put(painted.model,0x12c,mixed.data()+2);
+        Put(helper.node,0x118,painted.model.data());Put(helper.common,0x70,1u);Put(helper.common,0x194,0u);
+        Put(helper.common,0x34,reinterpret_cast<void*>(1));
+        Check(reader.Read(painted.model.data(),nodes)==native::ReadResult::ok&&nodes.size()==1&&nodes[0].index==1,
+              "non-rendered kind-1 helper mesh does not reject or renumber visible model surfaces");
+        Put(helper.common,0x194,1u);
+        Check(reader.Read(painted.model.data(),nodes)==native::ReadResult::unavailable,
+              "unsupported format with actual draw groups is still rejected");
+        Put(helper.common,0x194,0u);Put(painted.common,0x194,0u);
+        Check(reader.Read(painted.model.data(),nodes)==native::ReadResult::unavailable,
+              "a model containing only non-rendered helpers has no paint surface");
+    }
+
     std::vector<native::FixedBinding> bindings;
     Check(reader.ReadFixedBindings(f.model.data(),bindings)==native::ReadResult::unbound,
           "legacy declaration cannot expose unguarded fixed-part ABI");
