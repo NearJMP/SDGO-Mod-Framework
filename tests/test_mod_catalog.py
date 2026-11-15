@@ -140,6 +140,67 @@ class CatalogTests(unittest.TestCase):
         self.assertTrue(all(m["category"] == "fixes" or m["feature"] == "pvp-ai" for m in c["mods"]))
         self.assertEqual(c["profile"], "custom")
 
+    def test_unit_appearance_feature_closes_required_runtime_dependencies_only(self):
+        source = catalog.read_catalog(self.root)
+        selected = catalog.select_catalog(source, features=["unit-appearance"])
+        selected_ids = {mod["id"] for mod in selected["mods"]}
+        non_fixes = {mod["id"] for mod in selected["mods"] if mod["category"] != "fixes"}
+        self.assertEqual(
+            non_fixes,
+            {
+                "unit_appearance_client",
+                "unit_appearance_server",
+                "friend_unit_gift_client",
+                "friend_unit_gift_server",
+            },
+        )
+        self.assertEqual(
+            {"unit-appearance", "friend-unit-gift"},
+            {mod["feature"] for mod in selected["mods"] if mod["category"] != "fixes"},
+        )
+        self.assertNotIn("appearance_probe", selected_ids)
+        self.assertTrue(selected_ids.isdisjoint({
+            "rgb_paint_client", "rgb_paint_server",
+            "surface_decal_client", "surface_decal_server",
+        }))
+
+    def test_required_dependency_closure_is_transitive_and_host_scoped(self):
+        def mod(identity, feature, *, target="client", hosts=None, required=None):
+            return {
+                "id": identity, "feature": feature, "category": "gameplay",
+                "target": target, "hosts": hosts or ["GOnline-build"],
+                "version": "1.0.0", "provides": {},
+                "dependencies": {"required": required or []},
+            }
+
+        synthetic = {
+            "schema_version": 1, "categories": {},
+            "features": {
+                "consumer": {"mods": ["consumer"]},
+                "provider": {"mods": ["provider"]},
+                "base-provider": {"mods": ["base_provider"]},
+            },
+            "mods": [
+                mod("consumer", "consumer", required=[{"id": "provider"}]),
+                mod("provider", "provider", required=[{"id": "base_provider"}]),
+                mod("provider", "provider", target="server", hosts=["WorldServer-build"]),
+                mod("base_provider", "base-provider"),
+            ],
+        }
+        selected = catalog.select_catalog(synthetic, features=["consumer"])
+        self.assertEqual(
+            [(item["id"], item["target"]) for item in selected["mods"]],
+            [("consumer", "client"), ("provider", "client"),
+             ("provider", "server"), ("base_provider", "client")],
+        )
+        selected_ids = {item["id"] for item in selected["mods"]}
+        self.assertTrue(all(set(feature["mods"]).issubset(selected_ids)
+                            for feature in selected["features"].values()))
+        synthetic["mods"] = [item for item in synthetic["mods"]
+                             if item["id"] != "provider" or item["target"] != "client"]
+        with self.assertRaisesRegex(ValueError, "consumer -> provider"):
+            catalog.select_catalog(synthetic, features=["consumer"])
+
     def test_capsule_runtime_requires_owner_data_and_diagnostics_stay_off(self):
         source = catalog.read_catalog(self.root)
         runtime = next(m for m in source["mods"] if m["id"] == "capsule_catalog")

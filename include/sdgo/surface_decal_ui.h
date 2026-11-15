@@ -43,19 +43,21 @@ struct LayerLayout {
     Rect previous,next,place,orbit,rotation,size,wear,wrap,pattern,visible,hideNative,save,cancel;
     bool Set(float w,float h){
         if(!std::isfinite(w)||!std::isfinite(h)||w<260||h<530||w>1024||h>768)return false;
-        width=w;height=h;const float inner=w-28,half=(inner-8)/2,third=(inner-12)/3,quarter=(inner-18)/4;
-        for(unsigned i=0;i<3;++i){tabs[i]={14+(third+6)*i,42,third,26};tools[i]={14+(third+6)*i,368,third,26};}
-        for(unsigned i=0;i<visibleRows;++i)rows[i]={14,100+40.f*i,inner-14,36};
-        for(unsigned i=0;i<4;++i)ordering[i]={14+(quarter+6)*i,404,quarter,26};
-        previous={14,344,half,20};next={22+half,344,half,20};
-        place={14,148,half,28};orbit={22+half,148,half,28};
-        rotation={14,210,inner,18};size={14,270,inner,18};wear={14,330,inner,18};
-        wrap={14,370,half,26};pattern={22+half,370,half,26};visible={14,406,inner,26};hideNative={14,436,inner,24};
-        save={14,h-34,half,26};cancel={22+half,h-34,half,26};return true;
+        // The shipped panel's inner frame is x=14..w-26. Keep a real content
+        // inset instead of drawing controls directly on that frame's strokes.
+        width=w;height=h;const float left=24,inner=w-60,half=(inner-8)/2,third=(inner-12)/3,quarter=(inner-18)/4;
+        for(unsigned i=0;i<3;++i){tabs[i]={left+(third+6)*i,54,third,26};tools[i]={left+(third+6)*i,360,third,26};}
+        for(unsigned i=0;i<visibleRows;++i)rows[i]={left,110+36.f*i,inner-14,34};
+        for(unsigned i=0;i<4;++i)ordering[i]={left+(quarter+6)*i,394,quarter,26};
+        previous={left,332,half,20};next={left+half+8,332,half,20};
+        place={left,156,half,28};orbit={left+half+8,156,half,28};
+        rotation={left,218,inner,18};size={left,278,inner,18};wear={left,338,inner,18};
+        wrap={left,370,half,26};pattern={left+half+8,370,half,26};visible={left,406,inner,26};hideNative={left,428,inner,22};
+        save={left,h-34,half,26};cancel={left+half+8,h-34,half,26};return true;
     }
     LayerLayout(){Set(274,530);}
     const Rect& Slider(Action a)const{return a==Action::rotation?rotation:a==Action::size?size:wear;}
-    unsigned Row(float y)const{return unsigned(std::clamp(int(std::floor((y-rows[0].y)/40)),0,int(visibleRows)-1));}
+    unsigned Row(float y)const{return unsigned(std::clamp(int(std::floor((y-rows[0].y)/36)),0,int(visibleRows)-1));}
 };
 class LayerGesture {
 public:

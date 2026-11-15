@@ -30,6 +30,8 @@ int main(){
             if(tab==ui::Tab::layers){controls.insert(controls.end(),layout.tools.begin(),layout.tools.end());controls.insert(controls.end(),layout.ordering.begin(),layout.ordering.end());controls.push_back(layout.hideNative);}}
         controls.push_back(layout.save);controls.push_back(layout.cancel);
         for(std::size_t i=0;i<controls.size();++i){const auto& r=controls[i];Check(r.x>=0&&r.y>=0&&r.x+r.w<=width&&r.y+r.h<=530,"active-tab controls remain bounded");
+            Check(r.x>=24&&r.x+r.w<=width-36+.001f,"controls retain padding inside the native frame instead of touching its side strokes");
+            if(r.y<layout.save.y)Check(r.y+r.h<=450,"body controls stop above the native frame's bottom stroke");
             for(std::size_t j=0;j<i;++j)Check(!r.Overlaps(controls[j]),"no twenty-layer active-tab controls overlap");}
         layers::Design design;design.unitSerial=11;design.unitType=10002;
         for(unsigned i=1;i<=20;++i){layers::Layer item;item.id=i;item.sticker=7;item.placed=true;design.items.push_back(item);}

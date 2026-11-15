@@ -2,6 +2,7 @@
 #include "render.h"
 #include "textures.h"
 #include "sdgo/layered_decal_wire.h"
+#include "sdgo/fixed_surface_decal.h"
 #include "visibility.h"
 #include "sdgo/surface_decal_native.h"
 #include "sdgo/surface_decal_protocol.h"
@@ -19,6 +20,7 @@
 #include <windowsx.h>
 #include <commctrl.h>
 #include <atomic>
+#include <cstdio>
 
 namespace {
 using namespace sdgo::surface_decal;
@@ -65,6 +67,8 @@ ClientExtensionSendFn send=nullptr;ClientExtensionStateFn transport=nullptr;
 using Session=void*(__cdecl*)();Session session=nullptr;
 std::uint64_t sessionKey=0;
 struct Node {native::Node surface;View view;std::uint64_t viewed=0;};
+using FixedPatchKey=std::pair<std::uint32_t,std::uint32_t>; // layer, native node
+struct FixedProjection {Patch patch;std::uint64_t geometry=0,group=0;Matrix toAnchor{};std::array<double,3> maxCoordinate{};};
 struct Model {
     bool battle=false,room=false,geometryPending=false;
     std::uint32_t draws=0;
@@ -73,6 +77,9 @@ struct Model {
     std::array<std::uint32_t,3> stickers{};
     std::vector<Node> nodes;
     std::map<std::uint32_t,Patch> patches;
+    std::map<FixedPatchKey,FixedProjection> fixedPatches;
+    std::map<FixedPatchKey,unsigned> fixedDraws;
+    std::uint64_t bindingsAt=0;
     std::map<std::uint32_t,unsigned> layerDraws;
     layer::Design projected{};
 };
@@ -177,18 +184,62 @@ const layer::Design* AppearanceFor(const Model& m){
     if(editing&&editor.Preview().unitSerial==m.uid)return &editor.Preview();return Authority(m.uid);
 }
 bool SameStickers(const layer::Design& a,const Model& m){return a.unitSerial==m.uid&&a.unitType==m.type&&a.equipped==m.stickers;}
-void Rebuild(Model& m,const layer::Design& a){
-    if(!SameStickers(a,m)){m.patches.clear();m.projected={};return;}
+bool CurrentModelPose(void* owner,unsigned index,Matrix& output){
+    std::array<std::uintptr_t,3> range{};if(!Copy(static_cast<const std::uint8_t*>(owner)+0x124,range.data(),sizeof range)||
+        !range[0]||range[1]<range[0]||range[2]<range[1]||range[0]%4||range[1]%4||range[2]%4||(range[1]-range[0])/4>4096||index>=(range[1]-range[0])/4)return false;
+    void* node=nullptr;void* actualOwner=nullptr;std::array<float,16> pose{};
+    if(!Copy(reinterpret_cast<const void*>(range[0]+index*4),&node,4)||!node||!Copy(static_cast<const std::uint8_t*>(node)+0x118,&actualOwner,4)||actualOwner!=owner||!Copy(static_cast<const std::uint8_t*>(node)+0x10,pose.data(),sizeof pose))return false;
+    for(auto v:pose)if(!std::isfinite(v))return false;
+    if(pose[3]!=0||pose[7]!=0||pose[11]!=0||pose[15]!=1)return false;
+    for(unsigned i=0;i<16;++i)output[i]=pose[i];return true;
+}
+bool StableFixedPose(const FixedProjection& projected,const Matrix& current,const Placement& placement){
+    const auto tolerance=std::min(placement.width,placement.height)*.0001;
+    return FixedPoseWithinDisplacement(projected.maxCoordinate,projected.toAnchor,current,tolerance);
+}
+bool InvertModelPose(const Matrix& pose,Matrix& inverse){
+    if(pose[3]!=0||pose[7]!=0||pose[11]!=0||pose[15]!=1||!Invert(pose,inverse))return false;
+    // These entries are algebraically exact for an already validated affine
+    // input; avoid Gauss-Jordan roundoff inventing a perspective component.
+    inverse[3]=inverse[7]=inverse[11]=0;inverse[15]=1;return true;
+}
+void Rebuild(void* owner,Model& m,const layer::Design& a){
+    if(!SameStickers(a,m)){m.patches.clear();m.fixedPatches.clear();m.projected={};return;}
     if(layer::Same(m.projected,a))return;
     std::map<std::uint32_t,Patch> next;
+    std::map<FixedPatchKey,FixedProjection> fixed;
     for(const auto& item:a.items){if(!item.placed)continue;const auto old=m.patches.find(item.id);const auto* previous=layer::Find(m.projected,item.id);
-        if(old!=m.patches.end()&&previous&&layer::SamePlacement(*previous,item)){next[item.id]=std::move(old->second);continue;}
+        if(old!=m.patches.end()&&previous&&layer::SamePlacement(*previous,item)){next[item.id]=std::move(old->second);
+            for(auto& p:m.fixedPatches)if(p.first.first==item.id)fixed.emplace(p.first,std::move(p.second));continue;}
         Patch patch;for(const auto& n:m.nodes)if(n.surface.index==item.placement.anchor.node){
-            if(item.style.wrap)ProjectWrapped(n.surface.mesh,n.surface.geometry,n.surface.index,item.placement,patch);
-            else Project(n.surface.mesh,n.surface.geometry,n.surface.index,item.placement,patch);break;}
+            bool assembled=false;
+            if(item.style.wrap&&n.surface.fixedGroup&&n.surface.modelPoseValid){
+                // Use accumulated model-space poses, before the actor's world
+                // translation, so seams do not depend on large map coordinates.
+                Matrix anchorPose{},inverse{};
+                if(CurrentModelPose(owner,n.surface.index,anchorPose)&&InvertModelPose(anchorPose,inverse)){
+                    std::vector<FixedPart> parts;
+                    for(const auto& other:m.nodes)if(other.surface.fixedGroup==n.surface.fixedGroup&&other.surface.modelPoseValid){
+                        Matrix transform{};if(other.surface.index==n.surface.index)transform[0]=transform[5]=transform[10]=transform[15]=1;
+                        else{Matrix pose{};if(!CurrentModelPose(owner,other.surface.index,pose))continue;transform=Multiply(pose,inverse);}
+                        parts.push_back({other.surface.index,other.surface.geometry,other.surface.fixedGroup,&other.surface.mesh,transform});
+                    }
+                    std::vector<PartPatch> output;
+                    if(ProjectFixedWrapped(parts,item.placement,output)==Result::ok){
+                        for(auto& part:output)if(part.node==n.surface.index){patch=std::move(part.patch);assembled=true;}
+                        else{const auto source=std::find_if(parts.begin(),parts.end(),[&](const auto& p){return p.node==part.node;});if(source==parts.end())continue;
+                            FixedProjection value;value.geometry=part.geometry;value.group=n.surface.fixedGroup;value.toAnchor=source->toAnchor;value.patch=std::move(part.patch);
+                            for(const auto& v:value.patch.vertices){value.maxCoordinate[0]=std::max(value.maxCoordinate[0],std::abs(v.position.x));value.maxCoordinate[1]=std::max(value.maxCoordinate[1],std::abs(v.position.y));value.maxCoordinate[2]=std::max(value.maxCoordinate[2],std::abs(v.position.z));}
+                            fixed[{item.id,part.node}]=std::move(value);}
+                    }
+                }
+            }
+            if(!assembled){if(item.style.wrap)ProjectWrapped(n.surface.mesh,n.surface.geometry,n.surface.index,item.placement,patch);
+                else Project(n.surface.mesh,n.surface.geometry,n.surface.index,item.placement,patch);}break;}
         next[item.id]=std::move(patch);
     }
-    m.patches=std::move(next);m.projected=a;
+    m.patches=std::move(next);m.fixedPatches=std::move(fixed);m.projected=a;
+    for(auto i=m.fixedDraws.begin();i!=m.fixedDraws.end();)if(!m.fixedPatches.count(i->first))i=m.fixedDraws.erase(i);else ++i;
     for(auto i=m.layerDraws.begin();i!=m.layerDraws.end();)if(!layer::Find(a,i->first))i=m.layerDraws.erase(i);else ++i;
 }
 void InvalidateQuote(){armed=false;quoteToken={};quotedCosts.clear();}
@@ -251,7 +302,7 @@ void Pump(){
     auto* nativeSession=session?session():nullptr;const int connection=nativeSession?Read<int>(nativeSession,0x14):-1;
     const auto key=connection<0?0:(std::uint64_t(reinterpret_cast<std::uintptr_t>(nativeSession))<<32)|std::uint32_t(connection);
     if(key!=sessionKey){Close();editor=layer::Editor{};saved.clear();wanted.clear();battleBindings.Clear();pageRecord={};pendingUid=0;pendingCommand=0;sessionKey=key;stock.clear();catalogueWanted=false;
-        for(auto& item:models){item.second.uid=0;item.second.projected={};item.second.patches.clear();}inventoryRefreshUntil=inventorySettleUntil=0;lastCommit={};legacyServer=false;notice=L"连接变化，正在重新读取";}
+        for(auto& item:models){item.second.uid=0;item.second.projected={};item.second.patches.clear();item.second.fixedPatches.clear();item.second.fixedDraws.clear();item.second.bindingsAt=0;}inventoryRefreshUntil=inventorySettleUntil=0;lastCommit={};legacyServer=false;notice=L"连接变化，正在重新读取";}
     RefreshNativeStock();
     while(saved.size()>256){auto oldest=saved.end();for(auto i=saved.begin();i!=saved.end();++i)if(i->first!=pageRecord.unitSerial&&i->first!=editor.Preview().unitSerial&&(oldest==saved.end()||i->second.fetched<oldest->second.fetched))oldest=i;if(oldest==saved.end())break;saved.erase(oldest);}
     while(wanted.size()>256){auto i=std::prev(wanted.end());if(*i==pageRecord.unitSerial){if(i==wanted.begin())break;--i;}wanted.erase(i);}
@@ -327,7 +378,7 @@ void ApplyCommand(const ui::Command& command){
     else if(item->placed){auto p=item->placement;if(command.action==ui::Action::rotation)p.rotation=(command.value-.5)*6.283185307179586;
         else if(command.action==ui::Action::size){const auto width=.2+7.8*command.value;p.height*=width/p.width;p.width=width;}else return;
         if(p.width<=30&&p.height<=30)editor.Place(selected,p);}
-    notice=L"预览中，调整参数不重复扣费";
+    notice=L"调整参数不重复扣费";
 }
 bool LogicalPoint(HWND window,LPARAM lparam,float& x,float& y){
     RECT rect{};if(!GetClientRect(window,&rect)||rect.right<=0||rect.bottom<=0)return false;
@@ -572,7 +623,9 @@ void __cdecl StyleHook(void* model,const std::uint16_t* colors,std::uint16_t shi
            reinterpret_cast<const std::uint8_t*>(decals)==reinterpret_cast<const std::uint8_t*>(colors)+20)
             battle=bound=battleBindings.Resolve(reinterpret_cast<std::uintptr_t>(colors),record);
         if(observing)g_api->Log(g_mod,SDGO_LOG_INFO,"surface style caller=%08X bound=%u battle=%u room=%u geometry=%u",static_cast<unsigned>(caller),bound?1u:0u,battle?1u:0u,room?1u:0u,static_cast<unsigned>(result));
-        Model value;value.stickers=ids;value.geometryPending=battle||room||result!=native::ReadResult::ok;
+        // Styling can run before animation/parent binding, including previews.
+        // Refresh geometry and accumulated poses in the first live draw scope.
+        Model value;value.stickers=ids;value.geometryPending=true;
         value.battle=battle;value.room=room;
         if(bound){value.uid=record.unitSerial;value.type=record.unitType;wanted.insert(value.uid);}
         if(result==native::ReadResult::ok)for(auto& n:nodes)value.nodes.push_back({std::move(n),{},0});
@@ -582,10 +635,9 @@ void __cdecl StyleHook(void* model,const std::uint16_t* colors,std::uint16_t shi
     SetLastError(last);
 }
 void __fastcall ModelDestroyHook(void* self,void*){{std::lock_guard<std::recursive_mutex> hold(gate);models.erase(self);}modelDestroyOriginal(self);}
-bool BattleSurfaceReady(void* owner,const Model& model,const layer::Layer& item,const Patch& patch){
+bool BattleSurfaceReady(void* owner,const Model& model,unsigned index,const Patch& patch){
     if(!model.battle)return true;
     auto** first=Read<void**>(owner,0x124);auto** end=Read<void**>(owner,0x128);
-    const auto index=item.placement.anchor.node;
     if(!first||end<first||end-first>4096||index>=static_cast<unsigned>(end-first))return false;
     auto* node=first[index];
     if(!node||!render::OpaqueNode(Read<std::uint8_t>(node,0x108)!=0,Read<unsigned>(node,0x204)))return false;
@@ -601,6 +653,22 @@ bool BattleSurfaceReady(void* owner,const Model& model,const layer::Layer& item,
             alpha=Read<float>(m,0x10);return true;
         },0.f);
 }
+bool BattleSurfaceReady(void* owner,const Model& model,const layer::Layer& item,const Patch& patch){return BattleSurfaceReady(owner,model,item.placement.anchor.node,patch);}
+void RefreshFixedBindings(void* owner,Model& model,std::uint64_t now){
+    if(now-model.bindingsAt<1000)return;model.bindingsAt=now;
+    std::vector<native::FixedBinding> bindings;
+    const bool ready=geometry.ReadFixedBindings(owner,bindings)==native::ReadResult::ok;
+    bool changed=false;for(const auto& n:model.nodes){const auto group=ready&&n.surface.index<bindings.size()?bindings[n.surface.index].group:0;changed=changed||group!=n.surface.fixedGroup;}
+    if(!changed)return;
+    std::vector<native::Node> fresh;
+    if(ready&&geometry.Read(owner,fresh)==native::ReadResult::ok){
+        std::vector<Node> next;next.reserve(fresh.size());
+        for(auto& n:fresh){Node value;const auto old=std::find_if(model.nodes.begin(),model.nodes.end(),[&](const auto& prior){return prior.surface.index==n.index;});
+            if(old!=model.nodes.end()){value.view=old->view;value.viewed=old->viewed;}value.surface=std::move(n);next.push_back(std::move(value));}
+        model.nodes=std::move(next);
+    }else for(auto& n:model.nodes)n.surface.fixedGroup=0;
+    model.projected={};model.patches.clear();model.fixedPatches.clear();model.fixedDraws.clear();
+}
 void RenderNode(void* self,void* entry,unsigned,bool before,bool& suppress){
     // The callback's texture bit is a state-change optimization, not visibility.
     if(Read<std::uint8_t>(self,0x108))return;
@@ -610,14 +678,15 @@ void RenderNode(void* self,void* entry,unsigned,bool before,bool& suppress){
     // Resolve geometry on the native rendering thread once the model actually
     // draws; never freeze an empty projection from its construction callback.
     const auto now=GetTickCount64();
-    if(m.geometryPending&&now>=m.geometryRetry){
+    if(!before&&m.geometryPending&&now>=m.geometryRetry){
         m.geometryRetry=now+250;std::vector<native::Node> nodes;
         if(geometry.Read(owner,nodes)==native::ReadResult::ok){
             m.nodes.clear();for(auto& n:nodes)m.nodes.push_back({std::move(n),{},0});
-            m.geometryPending=false;m.projected={};m.patches={};
+            m.geometryPending=false;m.projected={};m.patches={};m.fixedPatches.clear();m.fixedDraws.clear();
         }
     }
-    Rebuild(m,*appearance);
+    if(!m.geometryPending)RefreshFixedBindings(owner,m,now);
+    Rebuild(owner,m,*appearance);
     if(!SameStickers(*appearance,m))return;
     auto* common=Read<void*>(self,0x11c);const auto group=Read<std::uint8_t>(entry,0x14);
     if(group>=Read<unsigned>(common,0x194))return;
@@ -636,18 +705,36 @@ void RenderNode(void* self,void* entry,unsigned,bool before,bool& suppress){
     auto* device=renderer&&*renderer?Read<IDirect3DDevice9*>(*renderer,8):nullptr;
     if(!render::Capture(device,Read<std::array<float,16>>(self,0x130),n->view))return;
     n->viewed=GetTickCount64();
-    for(const auto& item:appearance->items){const auto projected=m.patches.find(item.id);
-        if(!item.visible||!item.placed||item.placement.anchor.node!=index||projected==m.patches.end()||projected->second.vertices.empty())continue;
+    // One fresh ownership/animation snapshot is shared only by this native
+    // node/material draw callback, never by a later frame or another actor.
+    std::vector<native::FixedBinding> currentBindings;
+    const bool derivedHere=std::any_of(m.fixedPatches.begin(),m.fixedPatches.end(),[&](const auto& p){return p.first.second==index;});
+    const bool bindingsReady=derivedHere&&geometry.ReadFixedBindings(owner,currentBindings)==native::ReadResult::ok;
+    Matrix targetPose{};const bool targetPoseReady=derivedHere&&CurrentModelPose(owner,index,targetPose);
+    std::map<unsigned,Matrix> relativePoses;std::set<unsigned> invalidPoses;
+    for(const auto& item:appearance->items){
+        if(!item.visible||!item.placed)continue;
+        const Patch* projected=nullptr;bool derived=false;
+        if(item.placement.anchor.node==index){const auto p=m.patches.find(item.id);if(p!=m.patches.end())projected=&p->second;}
+        else{const auto p=m.fixedPatches.find({item.id,index});
+            if(p!=m.fixedPatches.end()&&p->second.geometry==n->surface.geometry&&bindingsReady&&index<currentBindings.size()&&item.placement.anchor.node<currentBindings.size()){
+                const auto expected=p->second.group;const auto& target=currentBindings[index];const auto& anchor=currentBindings[item.placement.anchor.node];
+                if(expected&&target.valid&&anchor.valid&&target.group==expected&&anchor.group==expected&&targetPoseReady){
+                    const auto anchorIndex=item.placement.anchor.node;if(!relativePoses.count(anchorIndex)&&!invalidPoses.count(anchorIndex)){
+                        Matrix pose{},inverse{};if(CurrentModelPose(owner,anchorIndex,pose)&&InvertModelPose(pose,inverse))relativePoses[anchorIndex]=Multiply(targetPose,inverse);else invalidPoses.insert(anchorIndex);}
+                    const auto pose=relativePoses.find(anchorIndex);if(pose!=relativePoses.end()&&StableFixedPose(p->second,pose->second,item.placement)){projected=&p->second.patch;derived=true;}}}
+        }
+        if(!projected||projected->vertices.empty())continue;
         float opacity=1;
-        if(!BattleSurfaceReady(owner,m,item,projected->second))continue;
+        if(!BattleSurfaceReady(owner,m,index,*projected))continue;
         if(m.battle){
             if(!render::OpaqueNode(Read<std::uint8_t>(self,0x108)!=0,Read<unsigned>(self,0x204)))continue;
             auto* nativeMaterial=material(owner,mat,0,1);if(!nativeMaterial)continue;opacity=Read<float>(nativeMaterial,0x10);
             if(!std::isfinite(opacity)||opacity<=0||opacity>1)continue;
         }
-        Patch part;for(const auto& vertex:projected->second.vertices)
+        Patch part;for(const auto& vertex:projected->vertices)
             if(vertex.triangle<n->surface.triangleGroups.size()&&n->surface.triangleGroups[vertex.triangle]==group)part.vertices.push_back(vertex);
-        if(!part.vertices.empty())if(auto* texture=textures.Get(item.sticker))if(render::Draw(device,texture,part,n->view,item.style,opacity)){++drawCount;++m.draws;++m.layerDraws[item.id];if(m.battle)++battleDrawCount;}
+        if(!part.vertices.empty())if(auto* texture=textures.Get(item.sticker))if(render::Draw(device,texture,part,n->view,item.style,opacity)){++drawCount;++m.draws;++m.layerDraws[item.id];if(derived)++m.fixedDraws[{item.id,index}];if(m.battle)++battleDrawCount;}
     }
 }
 bool __fastcall IndexedHook(void* self,void*,unsigned primitive,int base,unsigned minimum,unsigned vertices,unsigned first,unsigned count){
@@ -741,6 +828,11 @@ extern "C" __declspec(dllexport) int __cdecl SdgoSurfaceDecalTestLayersV2(std::u
                     g_api->Log(g_mod,SDGO_LOG_INFO,"surface undrawn uid=%llu node=%u hidden=%u flags=%08X ready=%u material=%u alpha=%.4f age=%llu",uid,index,Read<std::uint8_t>(node,0x108),Read<unsigned>(node,0x204),BattleSurfaceReady(entry.first,m,item,patch->second)?1u:0u,materialID,alpha,now-m.seenAt);break;}
             }}
         for(const auto& patch:m.patches)value.triangles+=unsigned(patch.second.vertices.size()/3);
+        if(design&&layer::Same(m.projected,*design)&&GetTickCount64()-m.seenAt<1500){
+            std::set<std::uint64_t> groups;for(const auto& node:m.nodes)if(node.surface.fixedGroup){++value.fixedNodes;groups.insert(node.surface.fixedGroup);}value.fixedGroups+=unsigned(groups.size());
+            for(const auto& p:m.fixedPatches){const auto* item=layer::Find(*design,p.first.first);if(!item||!item->visible||!item->placed)continue;
+                ++value.fixedParts;value.triangles+=unsigned(p.second.patch.vertices.size()/3);const auto draws=m.fixedDraws.find(p.first);if(draws!=m.fixedDraws.end())value.fixedPartDraws+=draws->second;}
+        }
         if(design)for(std::size_t i=0;i<design->items.size();++i){const auto& item=design->items[i];const auto draw=m.layerDraws.find(item.id);if(draw!=m.layerDraws.end()){value.layerDraws[i]+=draw->second;if(m.room)value.roomLayerDraws[i]+=draw->second;if(m.battle)value.battleLayerDraws[i]+=draw->second;}
             if(!item.visible||!item.placed||!item.style.wrap)continue;const auto patch=m.patches.find(item.id);if(patch==m.patches.end())continue;
             const auto node=std::find_if(m.nodes.begin(),m.nodes.end(),[&](const auto& n){return n.surface.index==item.placement.anchor.node;});if(node==m.nodes.end())continue;
@@ -755,6 +847,56 @@ extern "C" __declspec(dllexport) int __cdecl SdgoSurfaceDecalTestLayersV2(std::u
     if(auto* stockPage=Service(inventoryTable))if(Read<unsigned>(stockPage,0x178)==5&&Read<std::uint16_t>(stockPage,0x355)==0x09f2){
         value.nativeStockKnown=1;value.nativeStockPage=Read<unsigned>(stockPage,0x180);value.nativeStockPending=Read<unsigned>(stockPage,0x184);value.nativeStockTotal=Read<unsigned>(stockPage,0x188);Copy(static_cast<const std::uint8_t*>(stockPage)+0x355,value.nativeStock.data(),value.nativeStock.size());}
     value.lastCommit=lastCommit;*out=value;return 1;
+}
+extern "C" __declspec(dllexport) int __cdecl SdgoSurfaceDecalTestDumpBindingsV1(std::uint64_t uid,const wchar_t* path){
+    if(!NativeTest()||!path)return 0;
+    wchar_t executable[MAX_PATH]{};if(!GetModuleFileNameW(nullptr,executable,MAX_PATH))return 0;
+    auto* slash=std::wcsrchr(executable,L'\\');if(!slash)return 0;*slash=0;
+    const auto prefix=std::wstring(executable)+L"\\sdgo\\gametest\\";
+    if(_wcsnicmp(path,prefix.c_str(),prefix.size())||std::wcsstr(path,L"..")||std::wcsstr(path,L"/"))return 0;
+    std::lock_guard<std::recursive_mutex> hold(gate);if(!uid)uid=pageRecord.unitSerial;
+    FILE* file=nullptr;if(_wfopen_s(&file,path,L"wb")||!file)return 0;
+    std::fprintf(file,"{\"schema\":1,\"unit_uid\":%llu,\"models\":[",static_cast<unsigned long long>(uid));
+    unsigned count=0,total=0,meshVertices=0;
+    const bool includeMesh=GetEnvironmentVariableW(L"SDGO_APPEARANCE_MESH_PROBE",nullptr,0)>0;
+    for(const auto& model:models){const auto& m=model.second;if(m.uid!=uid||GetTickCount64()-m.seenAt>1500||count>=8)continue;
+        std::vector<native::FixedBinding> bindings;if(geometry.ReadFixedBindings(model.first,bindings)!=native::ReadResult::ok||total+bindings.size()>4096)continue;
+        total+=unsigned(bindings.size());std::fprintf(file,"%s{\"model\":%u,\"type\":%u,\"battle\":%u,\"room\":%u,\"nodes\":[",count++?",":"",unsigned(reinterpret_cast<std::uintptr_t>(model.first)),m.type,m.battle?1:0,m.room?1:0);
+        bool comma=false;for(const auto& binding:bindings){
+            const auto surface=std::find_if(m.nodes.begin(),m.nodes.end(),[&](const auto& n){return n.surface.index==binding.index;});
+            std::fprintf(file,"%s{\"index\":%u,\"vtable_rva\":%u,\"common\":%u,\"parent\":%d,\"runtime_parent\":%d,\"track_begin\":%u,\"track_end\":%u,\"track_capacity\":%u,\"modifier\":%u,\"valid\":%u,\"group\":\"%016llX\",\"vertices\":%u,\"triangles\":%u,\"active_slots\":[",comma?",":"",binding.index,unsigned(binding.vtable-reinterpret_cast<std::uintptr_t>(g_api->host_base)),unsigned(binding.common),binding.parentIndex,binding.runtimeParentIndex,unsigned(binding.trackBegin),unsigned(binding.trackEnd),unsigned(binding.trackCapacity),unsigned(binding.dynamicModifier),binding.valid?1:0,static_cast<unsigned long long>(binding.group),surface==m.nodes.end()?0:unsigned(surface->surface.mesh.vertices.size()),surface==m.nodes.end()?0:unsigned(surface->surface.mesh.triangles.size()));
+            bool slotComma=false;for(auto slot:binding.nonNullTrackSlots){std::fprintf(file,"%s%u",slotComma?",":"",slot);slotComma=true;}
+            std::fprintf(file,"],\"constant_slots\":[");slotComma=false;for(auto slot:binding.constantTrackSlots){std::fprintf(file,"%s%u",slotComma?",":"",slot);slotComma=true;}
+            std::fprintf(file,"],\"unknown_slots\":[");slotComma=false;for(auto slot:binding.unknownTrackSlots){std::fprintf(file,"%s%u",slotComma?",":"",slot);slotComma=true;}
+            std::fprintf(file,"],\"track_diagnostics\":[");slotComma=false;
+            const auto values=[&](const char* name,const float* data,unsigned size){bool finite=true;for(unsigned i=0;i<size;++i)finite=finite&&std::isfinite(data[i]);
+                std::fprintf(file,",\"%s\":",name);if(!finite){std::fprintf(file,"null");return;}std::fprintf(file,"[");for(unsigned i=0;i<size;++i)std::fprintf(file,"%s%.9g",i?",":"",data[i]);std::fprintf(file,"]");};
+            for(const auto& diagnostic:binding.trackDiagnostics){const auto& consumer=diagnostic.consumer;
+                std::fprintf(file,"%s{\"slot\":%u,\"state\":\"%s\",\"reason\":\"%s\",\"wrapper\":%u,\"record\":%u,\"key_counts\":[%u,%u,%u],\"decoded_keys\":%u",slotComma?",":"",diagnostic.slot,native::TrackDiagnosticStateName(diagnostic.state),native::TrackDiagnosticReasonName(diagnostic.reason),unsigned(consumer.wrapper),unsigned(consumer.record),consumer.positionKeys.count,consumer.quaternionKeys.count,consumer.scaleKeys.count,consumer.decodedKeyCount);
+                values("record_matrix",consumer.defaultMatrix.data(),16);values("record_scale",consumer.defaultScale.data(),3);values("record_quaternion",consumer.defaultQuaternion.data(),4);values("record_position",consumer.defaultPosition.data(),3);std::fprintf(file,"}");slotComma=true;
+            }
+            const auto floats=[&](const char* name,std::uintptr_t address,unsigned values){
+                std::array<float,16> data{};bool readable=values<=data.size()&&Copy(reinterpret_cast<const void*>(address),data.data(),values*4);
+                for(unsigned i=0;i<values&&readable;++i)readable=std::isfinite(data[i]);
+                std::fprintf(file,",\"%s\":",name);if(!readable){std::fprintf(file,"null");return;}
+                std::fprintf(file,"[");for(unsigned i=0;i<values;++i)std::fprintf(file,"%s%.9g",i?",":"",data[i]);std::fprintf(file,"]");
+            };
+            std::fprintf(file,"]");
+            floats("common_matrix",binding.common+0x12c,16);floats("common_scale",binding.common+0x16c,3);floats("common_quaternion",binding.common+0x178,4);floats("common_position",binding.common+0x188,3);
+            std::fprintf(file,",\"model_pose\":");if(surface==m.nodes.end()||!surface->surface.modelPoseValid)std::fprintf(file,"null");
+            else{std::fprintf(file,"[");for(unsigned i=0;i<16;++i)std::fprintf(file,"%s%.9g",i?",":"",surface->surface.modelPose[i]);std::fprintf(file,"]");}
+            if(includeMesh&&surface!=m.nodes.end()&&meshVertices+surface->surface.mesh.vertices.size()<=16384){
+                meshVertices+=unsigned(surface->surface.mesh.vertices.size());const auto& mesh=surface->surface.mesh;
+                std::fprintf(file,",\"mesh\":{\"vertices\":[");bool element=false;
+                for(const auto& v:mesh.vertices){std::fprintf(file,"%s[%.17g,%.17g,%.17g]",element?",":"",v.x,v.y,v.z);element=true;}
+                std::fprintf(file,"],\"triangles\":[");element=false;
+                for(const auto& t:mesh.triangles){std::fprintf(file,"%s[%u,%u,%u]",element?",":"",t.vertex[0],t.vertex[1],t.vertex[2]);element=true;}
+                std::fprintf(file,"]}");
+            }
+            std::fprintf(file,"}");comma=true;
+        }std::fprintf(file,"]}");
+    }
+    std::fprintf(file,"]}\n");const bool ok=std::ferror(file)==0;std::fclose(file);return ok&&count?1:0;
 }
 extern "C" __declspec(dllexport) int __cdecl SdgoSurfaceDecalTestTargetV1(std::uint64_t uid,test::TargetSnapshot* out){
     if(!NativeTest()||!out||out->size!=sizeof(*out)||out->version!=1)return 0;

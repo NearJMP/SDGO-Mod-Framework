@@ -45,9 +45,12 @@ struct LayerSnapshot {
     std::uint32_t foldedTriangles=0; // visible wrapped faces rejected by the old planar normal cutoff
     std::uint32_t nativeStockKnown=0,nativeStockPage=0,nativeStockPending=0,nativeStockTotal=0;
     std::array<std::uint8_t,313> nativeStock{};
+    std::uint32_t fixedParts=0,fixedPartDraws=0,fixedNodes=0,fixedGroups=0;
 };
 using LayerObserve=int(__cdecl*)(std::uint64_t,LayerSnapshot*);
 inline constexpr char layerExport[]="SdgoSurfaceDecalTestLayersV2";
+using DumpBindings=int(__cdecl*)(std::uint64_t,const wchar_t*);
+inline constexpr char bindingsExport[]="SdgoSurfaceDecalTestDumpBindingsV1";
 struct SceneHeader {
     std::uint32_t magic=0x53444150,version=2,state=0,bytes=sizeof(LayerSnapshot);
     std::uint64_t uid=0,tick=0;

@@ -11,7 +11,10 @@ template<class T>T Read(const void* p,unsigned offset=0){T v{};std::memcpy(&v,st
 template<class T>void Put(void* p,unsigned offset,T value){std::memcpy(static_cast<std::uint8_t*>(p)+offset,&value,sizeof value);}
 String View(const std::wstring& value){String s;s.length=static_cast<std::uint32_t>(value.size());if(s.length<8)std::memcpy(s.data.small,value.c_str(),(s.length+1)*2);else{s.capacity=s.length;s.data.pointer=value.c_str();}return s;}
 constexpr DWORD text=0xffd7e8ef,muted=0xff7f9baa,accent=0xff77dcf0;
-std::wstring FitLabel(const std::wstring& value){unsigned columns=0;std::size_t count=0;for(;count<value.size();++count){const unsigned width=value[count]<128?1:2;if(columns+width>22)break;columns+=width;}return count==value.size()?value:value.substr(0,count)+L"…";}
+std::wstring FitLabel(const std::wstring& value,unsigned limit=18){
+    unsigned columns=0;for(auto ch:value)columns+=ch<128?1:2;if(columns<=limit)return value;
+    columns=0;std::size_t count=0;for(;count<value.size();++count){const unsigned width=value[count]<128?1:2;if(columns+width+2>limit)break;columns+=width;}return value.substr(0,count)+L"…";
+}
 }
 Page* Page::drawing_=nullptr;
 bool Page::Bind(const SdgoApi* api,SdgoMod* mod){
@@ -88,12 +91,12 @@ bool Page::Attach(void* service,void* source){
     auto** labels=Read<std::uint8_t**>(source,0x190);auto** end=Read<std::uint8_t**>(source,0x194);if(labels&&end>labels&&*labels)font_=Read<unsigned>(*labels,0x6c);
     const auto add=[&](const wchar_t* name,const wchar_t* label,Action a,Rect r,bool edit=true){return Add(source,name,label,a,int(r.x),int(r.y),int(r.w),edit,int(r.h));};
     bool ok=add(L"SurfaceOpen",L"编辑自由贴花",Action::open,{65,456,138,24},false);
-    ok=add(L"SurfaceHeading",L"自由贴花",Action::none,{16,12,108,22})&&ok;
+    ok=add(L"SurfaceHeading",L"自由贴花",Action::none,{24,26,96,20})&&ok;
     const wchar_t* tabs[]={L"图层",L"属性",L"纹章库"};const Action tabActions[]={Action::layers,Action::properties,Action::library};
     for(unsigned i=0;i<3;++i){const auto name=L"SurfaceTab"+std::to_wstring(i);ok=add(name.c_str(),tabs[i],tabActions[i],layout_.tabs[i])&&ok;}
-    ok=add(L"SurfaceSubtitle",L"",Action::none,{16,76,layout_.width-32,20})&&ok;
+    ok=add(L"SurfaceSubtitle",L"",Action::none,{24,86,layout_.width-60,20})&&ok;
     for(unsigned row=0;row<layout_.visibleRows;++row){const auto name=L"SurfaceRow"+std::to_wstring(row);ok=add(name.c_str(),L"",Action::select,layout_.rows[row])&&ok;
-        const auto hint=L"SurfaceHint"+std::to_wstring(row);ok=add(hint.c_str(),L"",Action::none,{58,layout_.rows[row].y+18,layout_.width-88,16})&&ok;}
+        const auto hint=L"SurfaceHint"+std::to_wstring(row);ok=add(hint.c_str(),L"",Action::none,{68,layout_.rows[row].y+18,layout_.rows[row].w-44,16})&&ok;}
     ok=add(L"SurfacePrevious",L"上一页",Action::previous,layout_.previous)&&ok;ok=add(L"SurfaceNext",L"下一页",Action::next,layout_.next)&&ok;
     const wchar_t* tools[]={L"SurfaceAdd",L"SurfaceDuplicate",L"SurfaceRemove"};const wchar_t* captions[]={L"添加",L"复制",L"删除"};const Action toolActions[]={Action::add,Action::duplicate,Action::remove};
     for(unsigned i=0;i<3;++i)ok=add(tools[i],captions[i],toolActions[i],layout_.tools[i])&&ok;
@@ -101,12 +104,12 @@ bool Page::Attach(void* service,void* source){
     for(unsigned i=0;i<4;++i)ok=add(names[i],orderLabels[i],actions[i],layout_.ordering[i])&&ok;
     ok=add(L"SurfacePlace",L"放置贴花",Action::place,layout_.place)&&ok;ok=add(L"SurfaceOrbit",L"调整视角",Action::orbit,layout_.orbit)&&ok;
     const wchar_t* keys[]={L"SurfaceRotation",L"SurfaceSize",L"SurfaceWear"};const wchar_t* titles[]={L"旋转",L"尺寸",L"磨损"};
-    for(unsigned i=0;i<3;++i){const float y=190+60.f*i;ok=add(keys[i],titles[i],Action::none,{16,y,110,20})&&ok;
-        const auto value=std::wstring(keys[i])+L"Value";ok=add(value.c_str(),L"",Action::none,{layout_.width-112,y,98,20})&&ok;}
+    for(unsigned i=0;i<3;++i){const float y=198+60.f*i;ok=add(keys[i],titles[i],Action::none,{24,y,90,20})&&ok;
+        const auto value=std::wstring(keys[i])+L"Value";ok=add(value.c_str(),L"",Action::none,{layout_.width-126,y,90,20})&&ok;}
     ok=add(L"SurfaceWrap",L"贴合拐角",Action::wrap,layout_.wrap)&&ok;ok=add(L"SurfacePattern",L"更换划痕",Action::pattern,layout_.pattern)&&ok;
     ok=add(L"SurfaceVisibility",L"显示当前图层",Action::visible,layout_.visible)&&ok;
     ok=add(L"SurfaceNative",L"隐藏原生槽位",Action::hideNative,layout_.hideNative)&&ok;
-    ok=add(L"SurfaceStatus",L"",Action::none,{16,470,layout_.width-32,20})&&ok;
+    ok=add(L"SurfaceStatus",L"",Action::none,{24,470,layout_.width-60,20})&&ok;
     ok=add(L"SurfaceSave",L"保存外观",Action::save,layout_.save)&&ok;ok=add(L"SurfaceCancel",L"取消",Action::cancel,layout_.cancel)&&ok;
     if(!ok||!AdoptDraw()){for(auto& c:controls_)Put<std::uint8_t>(c.pointer,0x162,0);Detach();return false;}return true;
 }
@@ -136,7 +139,7 @@ void Page::Render(bool edit,bool placing,unsigned id,bool busy,bool dirty,bool a
     for(auto& c:controls_){bool show=c.edit==edit,enable=c.action!=Action::none&&!busy&&!armed;c.color=text;
         if(c.action==Action::open){enable=a&&!busy;Text(c,a?L"编辑自由贴花":L"贴花连接中…");}
         if(c.name==L"SurfaceHeading")Text(c,L"自由贴花");
-        if(c.name==L"SurfaceSubtitle"){c.color=muted;Text(c,armed_?(costs_.empty()?L"本次只调整参数，不消耗纹章":L"保存时一次扣除以下物品"):tab_==Tab::layers?std::to_wstring(a?a->items.size():0)+L" / "+std::to_wstring(policy_.maxLayers)+L" 层 · 拖动排序":tab_==Tab::library?(policy_.consume?L"新增 / 更换消耗，保存前核对":L"可复用已拥有或已解锁的纹章"):selected?Label(selected->sticker).substr(0,16):L"请先在图层页选择贴花");}
+        if(c.name==L"SurfaceSubtitle"){c.color=muted;Text(c,FitLabel(armed_?(costs_.empty()?L"调整参数不消耗纹章":L"确认后扣除所列物品"):tab_==Tab::layers?std::to_wstring(a?a->items.size():0)+L" / "+std::to_wstring(policy_.maxLayers)+L" 层 · 拖动排序":tab_==Tab::library?(policy_.consume?L"新增或换图需要库存":L"复用已拥有或解锁纹章"):selected?Label(selected->sticker):L"请先选择图层",26));}
         if(c.action==Action::layers||c.action==Action::properties||c.action==Action::library){enable=!busy&&!armed;const auto t=c.action==Action::layers?Tab::layers:c.action==Action::properties?Tab::properties:Tab::library;c.color=t==tab_?accent:text;}
         const bool row=c.name.rfind(L"SurfaceRow",0)==0,hint=c.name.rfind(L"SurfaceHint",0)==0;
         if(row||hint){const auto i=unsigned(c.name.back()-L'0');show=show&&(armed_||tab_!=Tab::properties)&&Offset()+i<Count();enable=enable&&show;
@@ -159,7 +162,7 @@ void Page::Render(bool edit,bool placing,unsigned id,bool busy,bool dirty,bool a
         if(c.name==L"SurfaceRotationValue")Text(c,positioned?std::to_wstring(int(std::lround(selected->placement.rotation*180/3.141592653589793)))+L"°":L"—");
         if(c.name==L"SurfaceSizeValue")Text(c,positioned?std::to_wstring(int(std::lround(selected->placement.width*50)))+L"%":L"—");
         if(c.name==L"SurfaceWearValue")Text(c,positioned?std::to_wstring(unsigned(std::lround(selected->style.wear/10.)))+L"%":L"—");
-        if(c.name==L"SurfaceStatus"){c.color=armed?accent:muted;Text(c,status.substr(0,18));}
+        if(c.name==L"SurfaceStatus"){c.color=armed?accent:muted;Text(c,FitLabel(status,24));}
         if(!enable&&c.action!=Action::none)c.color=muted;
         Text(c,c.caption);Put<std::uint8_t>(c.pointer,0x162,show?1:0);Put<std::uint8_t>(c.pointer,0x167,enable?1:0);
     }
@@ -167,18 +170,21 @@ void Page::Render(bool edit,bool placing,unsigned id,bool busy,bool dirty,bool a
 void Page::DrawCanvas(){
     if(!editing_||!Visible()||!renderer_||!*renderer_)return;Canvas canvas(Read<IDirect3DDevice9*>(*renderer_,8));if(!canvas.ready)return;
     const float left=Read<float>(root_,0x148),top=Read<float>(root_,0x14c);const auto shift=[&](Rect r){r.x+=left;r.y+=top;return r;};
-    canvas.Quad(shift({0,0,layout_.width,layout_.height}),0xff0b202e);canvas.Border(shift({0,0,layout_.width,layout_.height}),0xff31576a);canvas.Quad(shift({0,0,3,layout_.height}),0xff3b9eb7);canvas.Quad(shift({14,70,layout_.width-28,1}),0xff294555);
+    // The native panel supplies the only outer frame. Rows use quiet fills;
+    // another full-panel outline or boxed row would collide with its inner rim.
+    canvas.Quad(shift({0,0,layout_.width,layout_.height}),0xff0b202e);
     if(armed_||tab_!=Tab::properties){
         for(unsigned row=0;row<layout_.visibleRows;++row){const auto r=layout_.rows[row];if(Offset()+row>=Count())break;
             const auto* layer=!armed_&&tab_==Tab::layers?&appearance_.items[appearance_.items.size()-1-offset_-row]:nullptr;
             const auto sticker=armed_?costs_[quoteOffset_+row].sticker:layer?layer->sticker:stock_[stockOffset_+row].sticker;const bool selected=layer&&layer->id==selected_;
-            canvas.Quad(shift(r),selected?0xff1a4056:0xff102b3a);canvas.Border(shift(r),selected?0xff4daac3:0xff233f50);canvas.Quad(shift({r.x+4,r.y+3,30,30}),0xff081a25);
+            canvas.Quad(shift(r),selected?0xff1a4056:0xff102b3a);canvas.Quad(shift({r.x+4,r.y+3,30,30}),0xff081a25);
             if(thumbnail_)if(auto* texture=thumbnail_(sticker)){canvas.Quad(shift({r.x+4,r.y+3,30,30}),0xffffffff,texture);texture->Release();}
             if(selected)canvas.Quad(shift({r.x,r.y,2,r.h}),accent);
         }
-        if(Count()>layout_.visibleRows){const auto h=236.f*layout_.visibleRows/Count(),y=100+(236-h)*Offset()/(Count()-layout_.visibleRows);
-            canvas.Quad(shift({layout_.width-22,100,4,236}),0xff173746);canvas.Quad(shift({layout_.width-22,y,4,h}),0xff5394aa);}
-    }else if(const auto* layer=layers::Find(appearance_,selected_))if(thumbnail_)if(auto* texture=thumbnail_(layer->sticker)){canvas.Quad(shift({layout_.width/2-18,104,36,36}),0xffffffff,texture);texture->Release();}
+        if(Count()>layout_.visibleRows){const auto track=layout_.rows.back().y+layout_.rows.back().h-layout_.rows.front().y;
+            const auto h=track*layout_.visibleRows/Count(),y=layout_.rows.front().y+(track-h)*Offset()/(Count()-layout_.visibleRows);
+            canvas.Quad(shift({layout_.width-40,layout_.rows.front().y,4,track}),0xff173746);canvas.Quad(shift({layout_.width-40,y,4,h}),0xff5394aa);}
+    }else if(const auto* layer=layers::Find(appearance_,selected_))if(thumbnail_)if(auto* texture=thumbnail_(layer->sticker)){canvas.Quad(shift({(layout_.width-12)/2-18,112,36,36}),0xffffffff,texture);texture->Release();}
     for(const auto& c:controls_)if(c.edit&&Read<std::uint8_t>(c.pointer,0x162)&&c.action!=Action::none&&c.name.rfind(L"SurfaceRow",0)!=0){
         const bool enabled=Read<std::uint8_t>(c.pointer,0x167)!=0,hover=c.rect.Contains(hoverX_,hoverY_),primary=c.action==Action::save;
         canvas.Quad(shift(c.rect),enabled?(primary?0xff1d5368:hover?0xff254d63:0xff183749):0xff112733);canvas.Border(shift(c.rect),enabled?(primary?0xff61c9df:hover?0xff508fa7:0xff315c70):0xff263e4c);
