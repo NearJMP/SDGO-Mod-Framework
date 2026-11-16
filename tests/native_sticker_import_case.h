@@ -68,11 +68,12 @@ int StickerImportCase(const SdgoGameTestContextV1 *context, void *root) {
   static uint64_t revision = 0;
   static layers::Design proposal;
   layers::Design saved, draft;
-  if (!layers::wire::Decode(snapshot.saved.data(), snapshot.savedBytes,
-                            saved) ||
-      !layers::wire::Decode(snapshot.preview.data(), snapshot.previewBytes,
-                            draft))
+  if (!layers::wire::Decode(snapshot.saved.data(), snapshot.savedBytes,saved))
     return SDGO_GAME_TEST_WAIT;
+  const bool completeDraft=layers::wire::Decode(snapshot.preview.data(),snapshot.previewBytes,draft);
+  // An added, unplaced independent layer is deliberately not wire-valid.
+  // Use the live selection counters until the production picker anchors it.
+  if(!completeDraft&&phase!=2)return SDGO_GAME_TEST_WAIT;
   if (phase == 0) {
     const auto frame = CaptureScene(L"00-imported-sticker-blue-shield-before");
     if (frame < 1)
@@ -104,8 +105,7 @@ int StickerImportCase(const SdgoGameTestContextV1 *context, void *root) {
     importSelectionRequested = true;
     phase = 2;
   } else if (phase == 2) {
-    const auto *item = layers::Find(draft, snapshot.selected);
-    if (!item) {
+    if (!snapshot.selected||snapshot.previewLayers!=1) {
       const auto frame = CaptureScene(L"01-after-library-selection");
       if (frame < 1)
         return frame < 0 ? SDGO_GAME_TEST_FAIL : SDGO_GAME_TEST_WAIT;
@@ -113,10 +113,6 @@ int StickerImportCase(const SdgoGameTestContextV1 *context, void *root) {
           0, "native library click selects an editable imported sticker layer");
       return SDGO_GAME_TEST_FAIL;
     }
-    context->Assert(item->sticker == id,
-                    "native library selected the actual imported sticker ID");
-    if (item->sticker != id)
-      return SDGO_GAME_TEST_FAIL;
     double x = .55, y = .47;
     if (GetEnvironmentVariableW(L"SDGO_STICKER_IMPORT_X", text, 64))
       x = wcstod(text, nullptr);
@@ -131,6 +127,7 @@ int StickerImportCase(const SdgoGameTestContextV1 *context, void *root) {
     const auto place = reinterpret_cast<Place>(
         GetProcAddress(module, "SdgoSurfaceDecalTestPlaceV1"));
     if (!place || !place(client.right * x, client.bottom * y)) {
+      if(snapshot.pending)return SDGO_GAME_TEST_WAIT;
       context->Assert(
           0,
           "configured shield point is accepted by the production ray picker");
@@ -144,6 +141,8 @@ int StickerImportCase(const SdgoGameTestContextV1 *context, void *root) {
                          "the production ray picker");
       return SDGO_GAME_TEST_FAIL;
     }
+    context->Assert(item->sticker==id,"native library and placement use the actual imported sticker ID");
+    if(item->sticker!=id)return SDGO_GAME_TEST_FAIL;
     using Size = uint32_t(__cdecl *)(uint32_t, float *, float *);
     const auto catalog = GetModuleHandleW(L"sticker_catalog.dll");
     const auto defaults = catalog

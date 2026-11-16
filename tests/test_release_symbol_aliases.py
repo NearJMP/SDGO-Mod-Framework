@@ -7,6 +7,34 @@ from tools.build_release import validate_symbol_requirements
 
 
 class ReleaseSymbolAliasesTests(unittest.TestCase):
+    def test_reused_game_capsule_refreshes_shared_alias_without_promoting_private_alias(
+        self,
+    ):
+        from tools.game_test import merge_required_symbols
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            module = root / "module"
+            module.mkdir()
+            header = "[host]\nimage=Example.exe\ntimestamp=1\nsize_of_image=8192\n"
+            stage = root / "stage.ini"
+            dest = root / "copied.ini"
+            stage.write_text(header + "[example.join]\nkind=site\nrva=0x103\n", "utf-8")
+            dest.write_text(header + "[example.join]\nkind=site\nrva=0x100\n", "utf-8")
+            (module / "mod.ini").write_text(
+                "[mod]\nrequires=example.join,example.local\n", "utf-8"
+            )
+            (module / "symbols.fragment.ini").write_text(
+                header
+                + "[example.join]\nkind=site\nrva=0x103\n[example.local]\nkind=code\nrva=0x200\n",
+                "utf-8",
+            )
+            merge_required_symbols(stage, dest, [module / "mod.ini"])
+            parsed = configparser.ConfigParser(interpolation=None)
+            parsed.read(dest, encoding="utf-8")
+            self.assertEqual(0x103, int(parsed["example.join"]["rva"], 0))
+            self.assertFalse(parsed.has_section("example.local"))
+
     def test_global_and_fragment_address_drift_is_refused_before_packaging(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

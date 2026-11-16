@@ -384,6 +384,23 @@ def merge_required_symbols(
         required.update(source.sections())
     for manifest in manifests:
         required.update(shared_manifest_requires(manifest, source))
+        fragment=manifest.parent/'symbols.fragment.ini'
+        if fragment.is_file():
+            local=read_ini(fragment)
+            # Explicitly shared aliases must advance with the selected stage,
+            # even when this Mod also declares them locally. Otherwise reuse
+            # can retain an old global address which rejects the new sidecar.
+            # Sidecar-only aliases remain local and are never promoted.
+            for alias in set(local.sections())-{'host'}:
+                if not source.has_section(alias):continue
+                for field in ('kind','rva'):
+                    left=source.get(alias,field,fallback='').strip().casefold()
+                    right=local.get(alias,field,fallback='').strip().casefold()
+                    if field=='rva'and left and right:
+                        try:left,right=int(left,0),int(right,0)
+                        except ValueError:pass
+                    if left!=right:raise GameTestError('staged global/Mod symbol conflicts: '+alias)
+                required.add(alias)
     missing = sorted(section for section in required if not source.has_section(section) and
                      not (preserve_existing and destination.has_section(section)))
     if missing and not allow_missing:
