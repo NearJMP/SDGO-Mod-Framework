@@ -138,7 +138,7 @@ Repairs for crashes, freezes, disconnected sessions and incorrect displays in ex
 | [Scene registration lifecycle fix](docs/scene-lifecycle-fix.md) <!-- catalog: `scene_lifecycle_fix` --> | Fix an occasional cleanup crash after a scene object moves to another area |
 | [Multiplayer loading synchronization](docs/loading-sync-fix.md) <!-- catalog: `loading_sync_fix` --> | Fix multiplayer starts that occasionally hang on the loading screen (BattleServer) |
 | [Native login recovery](docs/login-recovery.md) <!-- catalog: `login_recovery`, `login_recovery_client` --> | When a reconnect after a dropped connection is refused or stalls, clear the old session and retry a limited number of times |
-| [Friend list fix](docs/friend-list-fix.md) <!-- catalog: `friend_list_fix`, `friend_list_client_fix` --> | Keep offline friends, current names and ranks; Chinese actions in the home USER LIST and the built-in messenger |
+| [Friend list fix](docs/friend-list-fix.md) <!-- catalog: `friend_list_fix`, `friend_list_client_fix` --> | Keep offline friends, current names and ranks with wider pilot-name columns; Chinese actions in the home USER LIST and the built-in messenger |
 | [Missing-animation transform input fix](docs/transform-input-fix.md) <!-- catalog: `transform_input_fix` --> | Recover the native transform exit for Apsalus III and verified imported chains with missing transition animations |
 | [Battle rank regression fix](docs/rank-progression-fix.md) <!-- catalog: `rank_progression_fix` --> | Stop battle settlement from lowering a pilot's rank (WorldServer) |
 | [First login lobby music](docs/lobby-music-fix.md) <!-- catalog: `lobby_music_fix` --> | Restore the lobby music on first login |

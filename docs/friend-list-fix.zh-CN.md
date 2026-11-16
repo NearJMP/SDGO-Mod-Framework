@@ -24,6 +24,10 @@ WorldServer 的数据库账号需要能创建 schema、存储过程并读取元�
 补全缺失军衔还需要能读取原生 INI `[DB Game] DBName` 指定的游戏库；已有会员军衔优先。
 游戏军衔不可读取时，仍使用会员库返回完整好友名单。
 
+角色名列支持 `nvarchar(20)` 至 `nvarchar(4000)`，包括 `nvarchar(50)`；无需缩短现有字段。
+程序保留该列的排序规则及原生名字编码和长度限制，不改变数据库字段、玩家名字或好友协议。
+短于 20 的字段、其他类型及 `nvarchar(max)` 仍不受支持。
+
 服主开启[好友机体赠送](friend-unit-gift.zh-CN.md)后，在主页面 USER LIST 右键已确认的离线好友也能发起赠送。
 其他原生操作保持原有的可用或禁用状态。
 
@@ -65,3 +69,7 @@ schema 不属于本 Mod、自有过程被外部修改或 SQL 失败时，返回�
 
 协议、缓存和函数地址见[客户端记录](investigations/friend-list-client.md)和[服务端记录](investigations/friend-list-server.md)。
 构建与测试命令见[英文说明](friend-list-fix.md#developer-tests)。
+
+元数据检查可运行 `friend_list_db_test.exe --name-layout-only <WorldServer.ini路径>`，使用原生 INI 认证。
+它通过连接内临时表检查兼容与不兼容的字段类型，再读取所选服务器的字段元数据并生成两种自有查询，
+不安装查询、不初始化策略、不修改持久表，也不查询玩家记录。不带该参数的完整策略测试仅适用于其专用可丢弃测试数据库。

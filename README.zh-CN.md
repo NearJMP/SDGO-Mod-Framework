@@ -135,7 +135,7 @@
 | [场景登记生命周期修复](docs/scene-lifecycle-fix.zh-CN.md) <!-- catalog: `scene_lifecycle_fix` --> | 修复场景对象切换区域后偶发的清理闪退 |
 | [多人加载同步修复](docs/loading-sync-fix.zh-CN.md) <!-- catalog: `loading_sync_fix` --> | 修复多人开局时偶发卡在加载画面（BattleServer） |
 | [异常断线登录恢复](docs/login-recovery.zh-CN.md) <!-- catalog: `login_recovery`, `login_recovery_client` --> | 异常断线后重新登录被拒或卡在等待时，清理旧会话并自动有限重试 |
-| [好友列表修复](docs/friend-list-fix.zh-CN.md) <!-- catalog: `friend_list_fix`、`friend_list_client_fix` --> | 保留离线好友、当前名字和军衔，恢复主页面 USER LIST 的中文菜单及原生聊天界面 |
+| [好友列表修复](docs/friend-list-fix.zh-CN.md) <!-- catalog: `friend_list_fix`、`friend_list_client_fix` --> | 保留离线好友、当前名字和军衔，兼容更宽的角色名字段；恢复主页面 USER LIST 的中文菜单及原生聊天界面 |
 | [缺失动画的变形卡死修复](docs/transform-input-fix.zh-CN.md) <!-- catalog: `transform_input_fix` --> | 阿普萨拉斯 III 或已登记导入形态链缺少过渡动画时，恢复原生状态退出，解除移动与攻击锁定 |
 | [军衔回退修复](docs/rank-progression-fix.zh-CN.md) <!-- catalog: `rank_progression_fix` --> | 防止战斗结算降低已有军衔（WorldServer） |
 | [首次登录大厅音乐](docs/lobby-music-fix.zh-CN.md) <!-- catalog: `lobby_music_fix` --> | 恢复首次登录时的大厅音乐 |

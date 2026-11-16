@@ -28,6 +28,11 @@ For missing member-rank records, it also needs read access to the game database 
 `[DB Game] DBName`. Existing member ranks take precedence. If game-rank lookup is unavailable, the complete
 friend list still works using the member database.
 
+The pilot-name column supports `nvarchar(20)` through `nvarchar(4000)`, including `nvarchar(50)`;
+existing columns do not need to be narrowed. The column collation and native name encoding/length
+limits are retained without changing database fields, stored names or the friend protocol.
+Columns shorter than 20 characters, other types and `nvarchar(max)` remain unsupported.
+
 If the server enables [friend unit gifts](friend-unit-gift.md), right-clicking an accepted offline friend in
 the home USER LIST also offers unit gifting. Native actions keep their original enabled/disabled state.
 
@@ -86,3 +91,14 @@ Packet, cache and address evidence: [client](investigations/friend-list-client.m
 cmake --build build --config Release --target friend_list_fix friend_list_client_fix friend_list_fix_test friend_list_client_fix_test friend_list_db_test
 ctest --test-dir build -C Release -R friend_list --output-on-failure
 ```
+
+For an existing native server, the metadata-only check uses its WorldServer INI for authentication:
+
+```powershell
+.\build\Release\friend_list_db_test.exe --name-layout-only <path-to-WorldServer.ini>
+```
+
+It checks accepted and rejected column layouts in session-local temporary tables, then reads the
+selected server's column metadata and generates both owned query variants without installing them.
+It does not initialize the policy, modify persistent tables or query player records. Run without
+this flag only against the disposable fixture database expected by the full policy test.
