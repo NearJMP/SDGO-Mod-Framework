@@ -16,7 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
         with:
-          fetch-depth: 0
+          # Runtime branches hold immutable programme ZIPs. Fetch only the
+          # selected source lineage rather than every historical runtime blob.
+          fetch-depth: 64
+          fetch-tags: false
       - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.12'
@@ -47,7 +50,20 @@ jobs:
         env:
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.sha }}
-        run: python tools/distribution_guard.py --git-range "$env:BEFORE..$env:AFTER"
+        shell: pwsh
+        run: |
+          # Keep the full range guard when an unusually large push exceeds the
+          # initial source window; never fetch the unrelated runtime branches.
+          for ($attempt=0; $attempt -lt 6; $attempt++) {
+            git merge-base --is-ancestor $env:BEFORE $env:AFTER 2>$null
+            if ($LASTEXITCODE -eq 0) { break }
+            git fetch --no-tags --filter=blob:none --deepen=128 origin $env:AFTER
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          git merge-base --is-ancestor $env:BEFORE $env:AFTER
+          if ($LASTEXITCODE -ne 0) { throw 'Publication source range is incomplete or diverged' }
+          python tools/distribution_guard.py --git-range "$env:BEFORE..$env:AFTER"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Update integrity and install regression
         timeout-minutes: 3
         run: python -m unittest discover -s tests -p "test_manager_updates*.py" -v
