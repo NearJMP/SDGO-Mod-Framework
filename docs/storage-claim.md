@@ -14,11 +14,13 @@ subsequent requests. Already submitted claims remain subject to the server's
 final result.
 
 Each reward still uses the original authenticated preflight and claim protocol,
-sent back to back: the next request goes out as soon as the previous answer
-arrives, with no pause and no list reload between rewards (only one per page of
-five), so dozens of rewards usually finish within seconds. Claiming only rewards
-of the page the game has loaded keeps the game's own grant handler from
-reloading the list and showing empty error boxes. Stable IDs distinguish separate copies of the same item; gift
+sent sequentially: the next request waits for the previous answer and the game's
+own pending-request check to clear. Native grant, item-list and gift-list refreshes
+pause the batch until they finish, then it resumes without another confirmation.
+A quiet receive interval alone never authorizes the next request on a slow
+connection. Lists reload once per page of five rather than after each reward.
+Only rewards on the currently loaded native page are claimed, preserving native
+grant handling. Stable IDs distinguish separate copies of the same item; gift
 letters already claimed are skipped. A reward the server refuses (for example a
 full hangar) is skipped and counted while the rest is claimed; the button then
 shows 已领 N · 拒 K (or 待选 K for choice gifts) instead of one native failure

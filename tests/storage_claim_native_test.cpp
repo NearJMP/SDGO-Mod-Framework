@@ -14,12 +14,13 @@ std::vector<Entry> rewards;std::deque<std::vector<uint8_t>> pending;
 std::vector<uint8_t> rows;uint32_t total=0;int sends=0,grants=0,nativeChecks=0,nativeErrors=0,manual=0;
 int appCalls=0;size_t maxPending=0;
 bool rejected=false,selection=false,claimRefused=false,newestFirst=false;
+bool nativeBusy=false,busyAfterGrant=false;
 std::vector<uint32_t> originalReplySequences;
 void __cdecl Log(SdgoMod*,int,const char*,...){}
 uint8_t* __cdecl Session(){return connection.data();}
 uint8_t* __cdecl App(){++appCalls;return app.data();}
 void __fastcall FakeInit(void*,void*){}
-uint8_t __fastcall Busy(void*,void*){return 0;}
+uint8_t __fastcall Busy(void*,void*){return nativeBusy?1u:0u;}
 int __fastcall Send(void*,void*,int socket,const uint8_t* data,int size,int flags) {
     assert(socket==7 && !flags);pending.emplace_back(data,data+size);++sends;maxPending=std::max(maxPending,pending.size());return 1;
 }
@@ -29,7 +30,7 @@ uint32_t __fastcall Original(void* self,void*,uintptr_t,uintptr_t,uintptr_t,uint
         originalReplySequences.push_back(g_testObserver.replySequence);
     if(opcode==0x4E7 || opcode==0x722){++nativeChecks;return 0;}
     if(opcode==0x8DA || opcode==0x53E || opcode==0x5D9 || opcode==0x814 || opcode==0x8AF || opcode==0x8B0){++nativeErrors;return 0;}
-    if(opcode==0x7E8 || opcode==0xA23){++grants;return 0;}
+    if(opcode==0x7E8 || opcode==0xA23){++grants;if(busyAfterGrant)nativeBusy=true;return 0;}
     if(opcode==0x7BD || opcode==0x7BE) {
         const auto tab=opcode==0x7BD?Tab::Items:Tab::Gifts;const auto stride=tab==Tab::Items?28u:402u;
         rows.assign(static_cast<size_t>(data[0])*stride,0);
@@ -44,7 +45,7 @@ void Setup(Tab tab=Tab::Items,uint64_t count=12) {
     if(g_timer){KillTimer(nullptr,g_timer);g_timer=0;}g_ui.Detach();storage_fixture::Setup();
     rewards.clear();for(uint64_t i=1;i<=count;++i)rewards.push_back({{i+(tab==Tab::Items?0x100000000ULL:0),tab==Tab::Gifts?i*1234567890123ULL:0},false});
     total=static_cast<uint32_t>(count);pending.clear();sends=grants=nativeChecks=nativeErrors=manual=appCalls=0;maxPending=0;
-    rejected=selection=claimRefused=newestFirst=false;g_retiredChecks.clear();originalReplySequences.clear();
+    rejected=selection=claimRefused=newestFirst=nativeBusy=busyAfterGrant=false;g_retiredChecks.clear();originalReplySequences.clear();
     app={};connection={};Put(app.data(),0x4A0,uint32_t{6});Put(app.data(),0x4A4,reinterpret_cast<void*>(1));
     Put(connection.data(),0x14,7);Put(service.data(),0x15C,static_cast<int>(tab));Put(service.data(),0x168,total);
     g_session=&Session;g_app=&App;g_busy=reinterpret_cast<NativeBusy>(&Busy);g_send=reinterpret_cast<NativeSend>(&Send);
@@ -104,6 +105,34 @@ int main() {
      std::vector<uint8_t> followUp(64,0);Receive(service.data(),nullptr,0,0,0,0x593,followUp.data());
      Sleep(50);Step();assert(sends==sentAfterGrant);Sleep(60);Step();assert(sends==sentAfterGrant+1);}
     g_settleMs=0;Run();assert(g_batch.phase()==Phase::Complete && grants==12);
+    // Native follow-ups can remain outstanding after their last receive and
+    // after the page is already loaded. Resume only when the original busy
+    // predicate clears, for both storage tabs and without another confirmation.
+    for(const auto tab:{Tab::Items,Tab::Gifts}) {
+        fixture::Setup(tab,2);Start();
+        DeliverUntil([]{return g_batch.Waiting(Operation::Claim);});
+        busyAfterGrant=true;Deliver();
+        const auto waitingSends=sends;
+        assert(grants==1&&g_batch.Busy()&&pending.empty());
+        Step();Step();assert(sends==waitingSends&&grants==1);
+        nativeBusy=busyAfterGrant=false;Run();
+        assert(g_batch.phase()==Phase::Complete&&grants==2&&maxPending==1);
+    }
+    // A native request appearing between preflight and claim has the same
+    // authority. Pausing cannot issue another check or duplicate a grant.
+    fixture::Setup(Tab::Items,2);Start();
+    DeliverUntil([]{return g_batch.Waiting(Operation::Check);});
+    nativeBusy=true;Deliver();
+    const auto beforeNativeRelease=sends;
+    Step();assert(pending.empty()&&sends==beforeNativeRelease&&grants==0);
+    nativeBusy=false;Run();assert(g_batch.phase()==Phase::Complete&&grants==2);
+    // Stop remains available while waiting for native work; clearing that
+    // work later must not restart the cancelled batch.
+    fixture::Setup(Tab::Items,2);Start();
+    DeliverUntil([]{return g_batch.Waiting(Operation::Check);});
+    nativeBusy=true;Deliver();Click();
+    const auto stoppedSends=sends;nativeBusy=false;Step();
+    assert(!g_batch.Busy()&&!g_batch.Outstanding()&&sends==stoppedSends&&grants==0);
     // The World may answer concurrent preflights out of send order.
     fixture::Setup();newestFirst=true;Start();Run();assert(g_batch.phase()==Phase::Complete && grants==12 && rewards.empty() && !g_batch.Outstanding());
     fixture::Setup(Tab::Gifts);rewards[0].claimed=true;Start();Run();assert(g_batch.phase()==Phase::Complete && grants==11 && nativeChecks==0);

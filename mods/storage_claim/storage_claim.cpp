@@ -183,7 +183,10 @@ void PumpUnsafe() {
                 const auto request=g_batch.Next();if(!request)break;
                 // The game's own follow-ups of the last grant are still running:
                 // its list reload (page not loaded) or storage traffic in the last moments.
-                if(!Read<uint8_t>(g_service,0x190) || now<g_settleUntil)break;
+                // The original callback checks native request ownership on
+                // every action. A quiet receive interval alone does not prove
+                // its grant/list follow-ups have finished on a slow connection.
+                if(!Read<uint8_t>(g_service,0x190) || now<g_settleUntil || g_busy(g_service))break;
                 if(request->operation!=Operation::List) {
                     uint32_t total=0;const auto entries=Snapshot(g_service,request->tab,total);
                     const auto entry=std::find_if(entries.begin(),entries.end(),[&](const Entry& e){return e.key==request->key && !e.claimed;});
