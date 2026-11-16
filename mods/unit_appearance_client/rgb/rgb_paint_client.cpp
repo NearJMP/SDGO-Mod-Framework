@@ -92,6 +92,9 @@ ui::Rect ControlRect(void* c){
 }
 void PositionModeButton(){
     panel.layout.toggle=ui::Layout{}.toggle;
+    // Native inventory pagination occupies the stock panel's bottom edge.
+    // Keep its entry below that frame; RGB mode keeps both footer actions aligned.
+    if(!panel.editing)panel.layout.toggle.y+=20;
     if(!modeAnchor)return;
     auto* inventory=Service(inventoryTable);
     if(!inventory||Read<void*>(inventory,0x108)!=modeAnchor)return;

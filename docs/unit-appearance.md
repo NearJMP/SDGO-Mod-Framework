@@ -14,14 +14,14 @@ Do not manually install the legacy DLLs alongside this module. Explicit conflict
 
 ## RGB paint
 
-![Adjust RGB and confirm a save on the native paint page](rgb-paint-demo.webp)
+![Enter RGB from the native palette, edit and return to native paint](rgb-paint-demo.webp)
 
 1. Select Paint in the factory to open the native palette. Click “RGB 取色” to enter RGB editing, wait for server colors, and select a region swatch on the left.
 2. Drag the hue strip, color square or R/G/B sliders. Channels range from 0 to 255; numeric fields apply with Enter, and the hex field accepts six digits such as `#FF0048`. Invalid input preserves the color; Esc cancels input.
 3. “清洗当前区域” restores the selected region's original material; “还原全部” restores the last confirmed palette.
 4. Select “保存涂装”, review, and confirm again. Success requires the server acknowledgement. Leaving discards unsaved edits; an uncertain save triggers a fresh read without automatically overwriting data.
 
-“原生涂装” returns to native palette controls. Reopening the paint page defaults to the native palette again; server color updates preserve the selected mode. Changing stock paint invalidates the previous RGB configuration for that unit. Colors apply in the lobby, room, battle and transformed models of the same unit. Separate instances of the same model keep separate records. Native transparency, cloaking, textures and gloss remain controlled by the original materials.
+The RGB entry sits below the right inventory, with space around the pagination frame, and moves with the panel during page transitions. “原生涂装” returns to native palette controls. Reopening the paint page defaults to the native palette again; server color updates preserve the selected mode. Changing stock paint invalidates the previous RGB configuration for that unit. Colors apply in the lobby, room, battle and transformed models of the same unit. Separate instances of the same model keep separate records. Native transparency, cloaking, textures and gloss remain controlled by the original materials.
 
 RGB mode owns clicks and drags on its controls and suspends mouse handling in the covered inventory, preventing accidental item drags. Gestures retain their release event outside the controls. Native inventory input resumes after switching to native paint and releasing the mouse. The preview area remains interactive. This input isolation coexists with OC.
 

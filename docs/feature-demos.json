@@ -279,7 +279,7 @@
     {
       "id": "surface-decals",
       "path": "docs/surface-decals-demo.webp",
-      "since": "1.16.44",
+      "since": "1.16.45",
       "mods": [
         "unit_appearance_client",
         "unit_appearance_server"
@@ -292,13 +292,13 @@
     {
       "id": "rgb-paint",
       "path": "docs/rgb-paint-demo.webp",
-      "since": "1.16.44",
+      "since": "1.16.45",
       "mods": [
         "unit_appearance_client",
         "unit_appearance_server"
       ],
-      "title_zh": "RGB 涂装：原生入口、调色与保存",
-      "title_en": "RGB paint: native entry, adjustment and save",
+      "title_zh": "RGB 涂装：原生入口、调色与返回",
+      "title_en": "RGB paint: native entry, adjustment and return",
       "guide_zh": "docs/unit-appearance.zh-CN.md",
       "guide_en": "docs/unit-appearance.md"
     }

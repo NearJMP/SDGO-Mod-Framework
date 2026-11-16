@@ -12,12 +12,7 @@ int RgbEntryCase(const SdgoGameTestContextV1* context){
         if(!control||!At<std::uint8_t>(control,0x162)||!At<std::uint8_t>(control,0x167))return false;
         auto event=At<Event>(At<void*>(menu),14*4);event(menu,0x301,reinterpret_cast<std::uintptr_t>(control)+0x118,control);return true;
     };
-    const auto toggle=[](){
-        const auto app=reinterpret_cast<void*(__cdecl*)()>(ownerApi->Symbol(ownerMod,"game.app"));if(!app||!app())return false;
-        const auto hwnd=At<HWND>(app(),0x3c);RECT r{};if(!GetClientRect(hwnd,&r)||!r.right||!r.bottom)return false;
-        const auto point=MAKELPARAM(940*r.right/1024,642*r.bottom/768);
-        SendMessageW(hwnd,WM_LBUTTONDOWN,MK_LBUTTON,point);SendMessageW(hwnd,WM_LBUTTONUP,0,point);return true;
-    };
+    const auto toggle=[](){return ClickRgbMode(Service("rgb_paint.page_vtable"));};
     auto* paintPage=Service("rgb_paint.page_vtable");
     auto* paintRoot=paintPage?At<void*>(paintPage,0xd0):nullptr;
     const float slide=paintRoot?At<float>(paintRoot,0x148):0;
