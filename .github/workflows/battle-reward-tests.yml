@@ -40,6 +40,8 @@ jobs:
       - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.12'
+      - name: Manager provider dependencies
+        run: python -m pip install "Pillow>=11.1,<13" "defusedxml==0.7.1"
       - name: Exact calculations, policy storage and same-port HTTP module
         run: python -B -m unittest discover -s tests -p "test_battle_reward*.py" -v
       - name: Owner launcher, registry, durable jobs and wallet contracts
