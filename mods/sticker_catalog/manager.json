@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "distribution": "public",
+  "id": "sticker_catalog",
+  "title": "自定义贴纸导入",
+  "description": "从图片创建带透明底的贴纸项目，预览并生成配套客户端资源与服务器定义。默认尺寸可调整；不替换原版纹章。",
+  "hosts": [
+    "client"
+  ],
+  "category": "gameplay",
+  "provider": "stickers",
+  "configuration_files": [
+    "catalog.bin",
+    "definitions.json",
+    "resource-overlay.ini",
+    "manifest.json"
+  ],
+  "settings": [
+    {
+      "id": "enabled",
+      "key": "Enabled",
+      "file": "mod.ini",
+      "section": "settings",
+      "label": "启用导入贴纸",
+      "type": "boolean",
+      "default": true,
+      "audience": "user",
+      "activation": "restart_required"
+    }
+  ],
+  "runtime_enabled_setting": "enabled",
+  "retirement": {
+    "content_files": [
+      "catalog.bin",
+      "definitions.json",
+      "resource-overlay.ini",
+      "resources.zdx",
+      "resources.zpk",
+      "manifest.json"
+    ]
+  }
+}

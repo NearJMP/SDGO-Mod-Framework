@@ -15,6 +15,7 @@
 #include "custom_products.h"
 #include "shop_search.h"
 #include "unit_name_display.h"
+#include "sticker_names.h"
 
 namespace {
 using namespace sdgo::shop_localization;
@@ -28,6 +29,7 @@ bool g_names = true, g_descriptions = true, g_options = true;
 bool g_interfaces = true, g_ready = false, g_searchChinese = true;
 sdgo::acquisition_sources_file::SourceFile g_acquisitionSources;
 thread_local std::wstring g_optionText;
+thread_local std::wstring g_stickerText;
 CustomProducts g_custom;
 const SdgoApi* g_api=nullptr;SdgoMod* g_mod=nullptr;
 using LoadFn=uint8_t(__thiscall*)(void*,const wchar_t*,int);
@@ -91,6 +93,12 @@ bool CopyText(const wchar_t* src, uint32_t size, wchar_t* target)
     __try { memcpy(target, src, size * sizeof(wchar_t)); return true; }
     __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
+bool StickerCategoryText(uint32_t category, const std::wstring& source)
+{
+    return sdgo::shop_localization::sticker_names::Resolve(
+               category, source, &g_stickerText) ==
+           sdgo::shop_localization::sticker_names::Resolution::translated;
+}
 bool NativeView(const void* value, uint32_t pos, uint32_t count, const wchar_t** text, uint32_t* size)
 {
     __try {
@@ -115,18 +123,23 @@ const std::wstring* Lookup(const wchar_t* source, uint32_t length, uintptr_t cal
     const bool productCaller=std::binary_search(g_productReturns.begin(),g_productReturns.end(),caller);
     uint32_t product=0;
     const bool hasProduct=productCaller && ProductIdBeforeName(source,&product);
-    // Authored content supplies its own display text before the stock dictionary.
+    // Authored content supplies its own display text before stock localization.
     if(hasProduct) {
         if(const auto* custom=g_custom.Title(product))return custom;
     }
+    uint32_t category=0;
+    const bool hasCategory=g_names&&CategoryIdBeforeName(source,&category);
+    if(hasCategory&&sdgo::shop_localization::sticker_names::IsStockCategory(category)) {
+        if(StickerCategoryText(category,text))return &g_stickerText;
+        // Sticker category names belong only to the separate provider. A
+        // disabled, absent, guarded, or declining provider preserves source.
+        return nullptr;
+    }
     if(sdgo::content_localization_boundary::Query(0,0,text.data(),length)!=
        SDGO_CONTENT_LOCALIZATION_NOT_OWNED)return nullptr;
-    if(g_names) {
-        uint32_t category=0;
-        if(CategoryIdBeforeName(source,&category)) {
-            const auto exact=g_words.find(L"@category:"+std::to_wstring(category)+L":"+text);
-            if(exact!=g_words.end())return &exact->second.text;
-        }
+    if(hasCategory) {
+        const auto exact=g_words.find(L"@category:"+std::to_wstring(category)+L":"+text);
+        if(exact!=g_words.end())return &exact->second.text;
     }
     if(productCaller) {
         if(hasProduct) {
@@ -223,6 +236,10 @@ const std::wstring* StableText(uint32_t kind, uint32_t id, const std::wstring& s
 {
     if ((kind == 1 || kind == 2) && !g_names) return nullptr;
     if (kind == 3 && !g_interfaces) return nullptr;
+    if(kind==2&&id&&sdgo::shop_localization::sticker_names::IsStockCategory(id)) {
+        if(StickerCategoryText(id,source))return &g_stickerText;
+        return nullptr;
+    }
     if(kind==1 || kind==2) {
         const uint32_t recordKind=kind==1?2u:0x22u;
         if(sdgo::content_localization_boundary::Query(

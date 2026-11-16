@@ -53,6 +53,64 @@ std::wstring ReadText(const Record& record)
     throw std::runtime_error("record text has no terminator");
 }
 
+
+void WriteStickerId(StickerRecord* record, std::uint32_t id)
+{
+    std::memcpy(record->data(), &id, sizeof(id));
+}
+
+void WriteStickerText(StickerRecord* record, const wchar_t* text)
+{
+    std::memset(record->data() + kStickerTextOffset, 0,
+                kStickerTextCharacters * sizeof(wchar_t));
+    for (std::size_t index = 0; text[index]; ++index) {
+        const std::uint16_t value = static_cast<std::uint16_t>(text[index]);
+        std::memcpy(record->data() + kStickerTextOffset + index * 2, &value,
+                    sizeof(value));
+    }
+}
+
+std::wstring ReadStickerText(const StickerRecord& record)
+{
+    wchar_t text[kStickerTextCharacters] = {};
+    for (std::size_t index = 0; index < kStickerTextCharacters; ++index) {
+        std::uint16_t value = 0;
+        std::memcpy(&value,
+                    record.data() + kStickerTextOffset + index * 2,
+                    sizeof(value));
+        text[index] = static_cast<wchar_t>(value);
+        if (!value)
+            return text;
+    }
+    throw std::runtime_error("sticker text has no terminator");
+}
+
+std::uint32_t __cdecl FakeStickerLookup(std::uint32_t stickerId,
+                                    const wchar_t* source,
+                                    std::uint32_t sourceChars,
+                                    wchar_t* output,
+                                    std::uint32_t outputChars)
+{
+    constexpr wchar_t kSource[] = L"Triangle Sticker";
+    constexpr wchar_t kTarget[] = L"三角形贴纸";
+    if (stickerId != 240005 ||
+        sourceChars != std::size(kSource) - 1 ||
+        std::wstring_view(source, sourceChars) !=
+            std::wstring_view(kSource, std::size(kSource) - 1))
+        return 0;
+    constexpr std::uint32_t required =
+        static_cast<std::uint32_t>(std::size(kTarget));
+    if (output && outputChars >= required)
+        std::memcpy(output, kTarget, sizeof(kTarget));
+    return required;
+}
+
+std::uint32_t __cdecl MalformedStickerLookup(
+    std::uint32_t, const wchar_t*, std::uint32_t, wchar_t*, std::uint32_t)
+{
+    return 3;
+}
+
 int HookCode(SdgoMod*, const char* name, void* detour, void** original)
 {
     g_hookName = name;
@@ -123,6 +181,81 @@ int main()
                               kTableType, &output) == PatchResult::invalid &&
                   output == sentinel,
               "a row without a bounded text terminator is rejected");
+
+        StickerRecord sticker{};
+        sticker.fill(0xA5);
+        WriteStickerId(&sticker, 240005);
+        sticker[4] = 0;
+        WriteStickerText(&sticker, L"Triangle Sticker");
+        const StickerRecord originalSticker = sticker;
+        StickerRecord stickerOutput{};
+        stickerOutput.fill(0xCC);
+        Check(TranslateStickerRecordWith(
+                  sticker.data(), sticker.size(), 240005, kStickerTableType,
+                  &FakeStickerLookup, &stickerOutput) == PatchResult::replaced,
+              "an exact stock sticker ID and source are translated");
+        Check(sticker == originalSticker,
+              "sticker translation never mutates the native row");
+        Check(ReadStickerText(stickerOutput) == L"三角形贴纸",
+              "the sticker row contains the reviewed Chinese phrase");
+        for (std::size_t index = 0; index < sticker.size(); ++index) {
+            if (index >= kStickerTextOffset &&
+                index < kStickerTextOffset +
+                            kStickerTextCharacters * sizeof(wchar_t))
+                continue;
+            Check(stickerOutput[index] == sticker[index],
+                  "all bytes outside the sticker name slot are preserved");
+        }
+
+        StickerRecord stickerSentinel{};
+        stickerSentinel.fill(0x7B);
+        stickerOutput = stickerSentinel;
+        WriteStickerText(&sticker, L"Triangle Sticker?");
+        Check(TranslateStickerRecordWith(
+                  sticker.data(), sticker.size(), 240005, kStickerTableType,
+                  &FakeStickerLookup, &stickerOutput) == PatchResult::unchanged &&
+                  stickerOutput == stickerSentinel,
+              "source drift never receives an ID-only sticker translation");
+        sticker = originalSticker;
+        WriteStickerId(&sticker, 249999);
+        WriteStickerText(&sticker, L"大肥鱼");
+        Check(TranslateStickerRecordWith(
+                  sticker.data(), sticker.size(), 249999, kStickerTableType,
+                  &FakeStickerLookup, &stickerOutput) == PatchResult::unchanged &&
+                  stickerOutput == stickerSentinel,
+              "an exact custom Chinese sticker name remains unchanged");
+        Check(TranslateStickerRecordWith(
+                  originalSticker.data(), originalSticker.size(), 240005,
+                  kTableType, &FakeStickerLookup, &stickerOutput) ==
+                      PatchResult::unchanged &&
+                  stickerOutput == stickerSentinel,
+              "the system-text table is never treated as a sticker row");
+        sticker = originalSticker;
+        sticker[4] = 1;
+        Check(TranslateStickerRecordWith(
+                  sticker.data(), sticker.size(), 240005, kStickerTableType,
+                  &FakeStickerLookup, &stickerOutput) == PatchResult::invalid &&
+                  stickerOutput == stickerSentinel,
+              "a sticker row with an unexpected security byte is refused");
+        Check(TranslateStickerRecordWith(
+                  originalSticker.data(), originalSticker.size(), 240006,
+                  kStickerTableType, &FakeStickerLookup, &stickerOutput) ==
+                      PatchResult::invalid &&
+                  stickerOutput == stickerSentinel,
+              "a sticker row whose ID differs from the request is refused");
+        Check(TranslateStickerRecordWith(
+                  originalSticker.data(), originalSticker.size(), 240005,
+                  kStickerTableType, &MalformedStickerLookup,
+                  &stickerOutput) == PatchResult::invalid &&
+                  stickerOutput == stickerSentinel,
+              "a malformed provider result cannot alter the native row");
+        const std::wstring stickerOverlong(kStickerTextCharacters, L'长');
+        Check(PatchStickerRecord(
+                  originalSticker.data(), originalSticker.size(), 240005,
+                  kStickerTableType, stickerOverlong, &stickerOutput) ==
+                      PatchResult::invalid &&
+                  stickerOutput == stickerSentinel,
+              "a sticker name that cannot fit the native slot is rejected");
 
         SdgoApi api{};
         api.size = sizeof(api);

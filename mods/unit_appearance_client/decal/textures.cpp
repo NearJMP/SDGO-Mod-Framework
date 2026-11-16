@@ -35,7 +35,7 @@ IDirect3DBaseTexture9* Textures::Get(std::uint32_t sticker){
     const auto now=GetTickCount64();const auto prior=failures_.find(sticker);if(prior!=failures_.end()&&now-prior->second<5000)return nullptr;
     if(failures_.size()>=256)failures_.erase(failures_.begin());failures_[sticker]=now;
     const auto* row=Record(sticker);if(!row)return nullptr;
-    const auto path=Text(row,0xd1,128);
+    const auto path=Text(row,0xd1,100);
     if(path.empty()||path.find(L':')!=std::wstring::npos||path.find(L"..")!=std::wstring::npos||path.front()==L'/'||path.front()==L'\\')return nullptr;
     auto* memory=allocate_(0x54);if(!memory)return nullptr;auto* object=construct_(memory);
     void* table=nullptr;if(!Copy(object,&table,4)||table!=vtable_){if(object)delete_(object,1);return nullptr;}

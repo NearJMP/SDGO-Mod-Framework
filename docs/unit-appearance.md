@@ -41,6 +41,8 @@ Inventory deduction, design revision and the durable confirmation receipt commit
 
 Wrapping starts at the hit surface and crosses only touching armor seams with a verified fixed relationship. Moving joints, air gaps and ambiguous seams use separate placements; duplicate a layer to decorate both sides. Native item replacements update linked layers and preserve independent layers. An incompatible form never borrows another geometry's anchor. Reflective armor is supported. Each projected material group follows its actual native opacity, including friendly-character fades and cloaking; hidden parts, zero opacity and special blend/depth passes remain hidden.
 
+Owners can add images through [Custom sticker import](sticker-import.md). The imported first-placement size applies when creating a new layer; saved placements keep their edited size. The owner's matching client content provides the image to other viewers.
+
 ## Troubleshooting and AI handoff
 
 Placement mode uses left clicks or drags for positioning and the right button for orbiting. Orbit mode restores left-button rotation. This input ownership is maintained during model loading and native preview replacement. Failed placement distinguishes an unready model, a click outside the model viewport and a missed surface; the preview/save prompt means the draft accepted the position.

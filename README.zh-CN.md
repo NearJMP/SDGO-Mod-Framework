@@ -84,6 +84,7 @@
 | [保管库一键领取](docs/storage-claim.zh-CN.md) <!-- catalog: `storage_claim` --> | 保管库页内确认一次，一次领取当前页签全部分页的物品或礼物 |
 | [自动机库容量](docs/hangar-capacity.zh-CN.md) <!-- catalog: `hangar_capacity` --> | 登录时把每个账号的机库保障到至少 1200 格（WorldServer） |
 | [商城汉化与中文检索](docs/shop-localization.zh-CN.md) <!-- catalog: `shop_localization` --> | 汉化商品名称、说明和机体预览，修复详情面板闪退；可按中文名称、等级与币种检索 |
+| [原版贴纸名称汉化](docs/sticker-localization.zh-CN.md) <!-- catalog: `sticker_localization` --> | 独立开关汉化审定的原版贴纸名称及全部精确商城分类，保留作者名称和未知条目 |
 | [原生界面中文汉化](docs/ui-localization.zh-CN.md) <!-- catalog: `ui_localization` --> | 汉化原版泰文／韩文按钮、活动获得说明与较长系统提示，保留简单英语和原版图片；自定义内容随内容包分发 |
 | [机体获得方式](docs/acquisition-sources.zh-CN.md) <!-- catalog: `acquisition_sources` --> | 汇总已应用的扭蛋、商城和副官来源，以及设计图合成与取得方式；各功能可选联动 |
 | [长房名](docs/room-titles.zh-CN.md) <!-- catalog: `room_titles`、`room_titles_agent`、`room_titles_server` --> | 普通、AI、队伍及任务房的建房、设置和改名入口支持最长 128 字 |
@@ -100,6 +101,7 @@
 |---|---|
 | [商城商品管理](docs/shop-catalog.zh-CN.md) <!-- catalog: `shop_catalog` --> | 内置五类可编辑预设；大目录分页与搜索、空闲编号分配及共享记录冲突保护（WorldServer） |
 | [扭蛋机编辑器](docs/capsule-catalog.zh-CN.md) <!-- catalog: `capsule_catalog` --> | 自带 35 台可编辑默认奖池；配套安装两端，管理机台、价格、概率和获取途径 |
+| [自定义贴纸导入](docs/sticker-import.zh-CN.md) <!-- catalog: `sticker_catalog` --> | 从透明图片制作纹章，设置首次放置尺寸并应用两端定义；内置可编辑的公开示例 |
 | [机体族导入](docs/unit-import.zh-CN.md) <!-- catalog: `unit_catalog`, `unit_catalog_server` --> | 导入单形态、双形态、三阶段与有向多形态协议包，生成同版服务端形态图，组合[自定义技能、图标及配套效果参数](docs/unit-skill-import.zh-CN.md)，检查参数与武器回调资源；随附公开AR成长机、BR爆甲演示预设 |
 | [地图与任务导入](docs/map-import.zh-CN.md) <!-- catalog: `map_catalog`, `map_catalog_server` --> | 在 Manager 导入地图与分阶段任务：原生队伍行进过场、机体横幅和指挥官提醒，守卫保护目标与友军成功撤离，敌友一致的活动范围、触边受击与非致命 HP 同步，门板碰撞开合、NPC 炮击、地面标线、加载海报与掉落；保留任务原名并生成配对的客户端内容与服务端定义；默认附 OPEN 示例地图与 8 阶段任务源码，可查看输入文件及生成脚本 |
 | [副官与能力管理](docs/operator-assistant.zh-CN.md) <!-- catalog: `operator_catalog`、`operator_catalog_server` --> | 在 Manager 编辑副官外观、能力、补给掉落和商城草稿，导入分享包并发布配套内容 |

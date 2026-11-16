@@ -16,6 +16,8 @@ class ReviewRequired(ValueError):
 
 def operation(provider,method,path):
     if method!='POST':return None
+    if provider=='stickers'and path=='/api/stickers/native/apply-server':
+        return {'title':'应用自定义贴纸定义','effects':['登记所选贴纸的服务端固定定义；只更新本项目拥有的编号','保留玩家纹章库存、商城、奖励与原版定义；正常重启后激活'],'kind':'fixed_catalog'}
     if provider=='units'and re.fullmatch(r'/api/units/drafts/[0-9a-f]{32}/confirm',path):
         return {'title':'发布机体定义','effects':['写入固定机体、武器及物品定义','保留现有玩家资产；服务重启确认后开放新内容'],'kind':'fixed_catalog'}
     if provider=='units'and path=='/api/units/batch/apply':
@@ -38,7 +40,7 @@ class ChangeReviews:
     def __init__(self,workspace):self.workspace=workspace;self.lock=threading.RLock();self.reviews={}
     def prepare(self,provider,method,path,body,headers):
         declaration=operation(provider.id,method,path)
-        ini=provider.config.get('server_ini')
+        ini=provider.change_review_target(path,body) if hasattr(provider,'change_review_target') else provider.config.get('server_ini')
         if not declaration or not ini:return None
         operations.require_local_database(ini)
         group,nodes,consumers=operations.topology(ini)
@@ -68,7 +70,8 @@ class ChangeReviews:
         if plan.get('background'):
             # A background operation holds the gate for its whole run, not for this request.
             yield;return
-        with operations.server_change(provider.config['server_ini'],provider.id+':'+path,(plan['kind'],)):
+        ini=provider.change_review_target(path,body) if hasattr(provider,'change_review_target') else provider.config['server_ini']
+        with operations.server_change(ini,provider.id+':'+path,(plan['kind'],)):
             yield
     def state(self):
         groups={};rows=[]

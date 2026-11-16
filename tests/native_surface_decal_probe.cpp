@@ -401,6 +401,7 @@ int PreviewInputCase(const SdgoGameTestContextV1* context,void* service){
     return 1;
 }
 #include "native_layered_appearance_case.h"
+#include "native_sticker_import_case.h"
 #include "native_appearance_scene_observer.h"
 #include "native_rgb_appearance_case.h"
 #include "native_rgb_entry_case.h"
@@ -408,6 +409,20 @@ int PreviewInputCase(const SdgoGameTestContextV1* context,void* service){
 #include "native_stock_refresh_case.h"
 int __cdecl ProbeCase(const SdgoGameTestContextV1* context) {
     using namespace sdgo::surface_decal;
+    if(importSelectionRequested){
+        static bool selectionCaptured=false;
+        if(!selectionCaptured){
+            const auto frame=CaptureScene(L"01-after-selector-unconditional");
+            if(frame<1)return frame<0?SDGO_GAME_TEST_FAIL:SDGO_GAME_TEST_WAIT;
+            const auto module=GetModuleHandleW(L"unit_appearance_client.dll");
+            const auto observe=module?reinterpret_cast<test::LayerObserve>(GetProcAddress(module,test::layerExport)):nullptr;
+            test::LayerSnapshot snapshot;
+            if(!observe||!observe(0,&snapshot))return SDGO_GAME_TEST_FAIL;
+            char message[180];std::snprintf(message,sizeof message,"import selection editing=%u pending=%u selected=%u previewLayers=%u state=%u stock=%u",snapshot.editing,snapshot.pending,snapshot.selected,snapshot.previewLayers,snapshot.state,snapshot.stockTypes);context->Observe(message);
+            selectionCaptured=true;
+            if(!snapshot.previewLayers){context->Assert(0,"native selection creates an imported layer");return SDGO_GAME_TEST_FAIL;}
+        }
+    }
     static unsigned step=0,tabClicks=0;static std::uint64_t clicked=0;
     static unsigned visits=0;static bool exiting=false;
     static const bool lifecycle=GetEnvironmentVariableW(L"SDGO_SURFACE_LIFECYCLE_TEST",nullptr,0)>0;
@@ -499,6 +514,7 @@ int __cdecl ProbeCase(const SdgoGameTestContextV1* context) {
             key.data.pointer=L"SurfaceCancel";key.length=13;key.capacity=13;cancel=find(root,&key,4);
             if(!cancel||!At<std::uint8_t>(cancel,0x162))return SDGO_GAME_TEST_WAIT;
         }
+        if(GetEnvironmentVariableW(L"SDGO_STICKER_IMPORT_TEST",nullptr,0))return StickerImportCase(context,root);
         if(saveTest||GetEnvironmentVariableW(L"SDGO_SURFACE_LAYERED_TEST",nullptr,0))return LayeredEditorCase(context,service,root);
         if(GetEnvironmentVariableW(L"SDGO_APPEARANCE_STOCK_REFRESH_TEST",nullptr,0))return NativeStockRefreshCase(context,service,root);
         if(GetEnvironmentVariableW(L"SDGO_SURFACE_CAMERA_TEST",nullptr,0)){

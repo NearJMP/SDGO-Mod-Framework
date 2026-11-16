@@ -1,4 +1,7 @@
 pyinstaller>=6.16,<7
 pyodbc>=5,<6
-Pillow>=11,<13
+Pillow>=11.1,<13
+defusedxml==0.7.1
+pi-heif-decoder==1.7.0.post4
+resvg-py==0.5.0
 truststore>=0.10,<1

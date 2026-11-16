@@ -1,3 +1,6 @@
 mods/ui_localization/phrases.generated.h text eol=lf
 # Example map packages are verified byte for byte (SHA-256 in map.json): never convert line endings
 examples/** -text
+
+# Preserve verbatim bundled dependency notices and corresponding source archives.
+manager/licenses/** -text -whitespace

@@ -3,10 +3,23 @@
 ## Unified Manager runtime
 
 The self-contained Manager bundles Python (PSF license), Pillow (HPND license),
-pyodbc (MIT), truststore (MIT), and, when present in the build, defusedxml (PSF license). Its executable
-uses the PyInstaller bootloader (GPL with its distribution exception). Their full
-license texts are bundled inside the EXE under `licenses/`. The build uses the
-installed package versions; it does not include game resources or owner data.
+pyodbc (MIT), truststore (MIT), defusedxml (PSF license), pi-heif-decoder
+(BSD-3-Clause), and resvg-py (MIT). Its executable uses the PyInstaller bootloader
+(GPL with its distribution exception). Full license texts and the codec binary
+provenance are bundled inside the EXE under `licenses/`.
+
+HEIC/HEIF decoding uses the decoder-only pi-heif-decoder 1.7.0.post4 Windows
+wheel. Its dynamically linked libheif 1.23.4 and libde265 1.1.3 libraries are
+LGPL-3.0-or-later; their exact source archives are bundled with the notices. The
+wheel has no x265 or other real encoder. Its MinGW runtime DLLs are distributed
+under the GCC Runtime Library Exception and MinGW-w64 licenses recorded with the
+codec notices.
+
+Restricted SVG rasterization uses resvg-py 0.5.0. The MIT wrapper statically
+contains its locked Rust dependency graph, including resvg/usvg 0.48.1; the
+per-package license inventory and license files are bundled with the codec
+notices. The build uses the pinned package versions and does not include game
+resources or owner data.
 
 The Windows/.NET framework used by the internal shop service is supplied by the
 operating system and is not redistributed by this project.

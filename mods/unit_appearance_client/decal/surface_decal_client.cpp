@@ -338,7 +338,12 @@ bool PlaceAt(double x,double y){
             const auto length=std::hypot(ray.direction.x,ray.direction.y,ray.direction.z);
             const Vec3 point{ray.origin.x+ray.direction.x/length*hit.distance,ray.origin.y+ray.direction.y/length*hit.distance,ray.origin.z+ray.direction.z/length*hit.distance};
             Vec3 projected;if(!Transform(point,Multiply(Multiply(n.view.world,n.view.camera),n.view.projection),projected)||projected.z<0||projected.z>1||projected.z>=nearest)continue;
-            Placement p;if(MakePlacement(n.surface.mesh,hit,n.surface.geometry,n.surface.index,{1,0,0},old->placed?old->placement.width:2,old->placed?old->placement.height:2,old->placed?old->placement.depth:.6,p)!=Result::ok)continue;
+            float defaultWidth=2,defaultHeight=2;
+            const auto catalog=GetModuleHandleW(L"sticker_catalog.dll");
+            using DefaultSize=uint32_t(__cdecl*)(uint32_t,float*,float*);
+            const auto defaults=catalog?reinterpret_cast<DefaultSize>(GetProcAddress(catalog,"SdgoStickerCatalogDefaultSizeV1")):nullptr;
+            if(defaults)defaults(old->sticker,&defaultWidth,&defaultHeight);
+            Placement p;if(MakePlacement(n.surface.mesh,hit,n.surface.geometry,n.surface.index,{1,0,0},old->placed?old->placement.width:defaultWidth,old->placed?old->placement.height:defaultHeight,old->placed?old->placement.depth:.6,p)!=Result::ok)continue;
             if(old->placed)p.rotation=old->placement.rotation;Patch test;
             if((old->style.wrap?ProjectWrapped(n.surface.mesh,n.surface.geometry,n.surface.index,p,test):Project(n.surface.mesh,n.surface.geometry,n.surface.index,p,test))!=Result::ok)continue;
             best=p;nearest=projected.z;found=true;}}

@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "distribution": "public",
+  "id": "sticker_localization",
+  "title": "原版贴纸名称中文汉化",
+  "category": "fixes",
+  "hosts": ["client"],
+  "settings": [
+    {
+      "id": "enabled",
+      "key": "Enabled",
+      "file": "mod.ini",
+      "section": "settings",
+      "type": "boolean",
+      "default": true,
+      "audience": "user",
+      "label": "汉化原版贴纸名称",
+      "description": "仅按原版贴纸编号和完整原文精确匹配；自定义贴纸名称与未知贴纸保持原样。",
+      "activation": "restart"
+    }
+  ],
+  "description": "将当前原版贴纸名称和精确商城分类显示为各自经审定的简体中文，同时保留自定义贴纸、未审定原生专名、未知贴纸与全部图像资源。",
+  "mechanism": "独立提供只读名称词典，由原生界面汉化的单一资源查询分发器返回完整记录副本；仅替换名称字段。商城名称通过原版分类编号、完整分类原文、有类型的贴纸关联和精确基线贴纸原文映射到分类自身的审定目标。不会改写原版资源归档、贴纸图片、材质、尺寸、库存、价格或玩家内容。",
+  "presentation": "configurable"
+}

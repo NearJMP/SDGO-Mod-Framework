@@ -1,0 +1,33 @@
+Codec runtime provenance
+
+pi-heif-decoder 1.7.0.post4
+- Wheel: pi_heif_decoder-1.7.0.post4-cp314-cp314-win_amd64.whl
+- Wheel SHA-256: 4c8a90e23b2508e8876dac2315e3a372d1071febf3c14eb909b4c4c28bbbfc7e
+- Source tag: pi-heif-decoder-v1.7.0.post4
+- Source commit: 6265a0e6196f4193a50c7ae9d279a2437f9f9e63
+- Python/native extension: BSD-3-Clause.
+- Decoder libraries: dynamically linked libheif 1.23.4 and libde265 1.1.3, LGPL-3.0-or-later.
+- The verified wheel exposes libde265 decoding only; it has no x265, x264, AOM, dav1d, OpenH264, or other real encoder.
+- The two exact LGPL source archives and their SHA-256 values are bundled below this directory.
+- Windows MinGW runtime DLLs are covered by GCC GPLv3 plus the GCC Runtime Library Exception and the MinGW-w64 permissive licenses bundled here.
+
+Source archives
+- source/libheif-1.23.4.tar.gz: d0c02b4b0e978f34a1974b6f3eea7975a537bf7a9195ffeea38e7242ff316fdd
+- source/libde265-1.1.3.tar.gz: 554228bd17788c99a7e63b37ab5634722190e6e2bf60c1dcb01cef328e133905
+
+resvg-py 0.5.0
+- Wheel: resvg_py-0.5.0-cp310-abi3-win_amd64.whl
+- Wheel SHA-256: 1f6b8956c4143dbfe107bcd35799d0dfd778a40a8cd537893c0bf489898a6c3c
+- Source tag: 0.5.0
+- Source commit: 32480b13b1624497c9ac36ae654ecf3a48698c18
+- Wrapper: MIT.
+- Cargo.lock resolves resvg/usvg 0.48.1. Exact locked Rust package license files are concatenated in resvg-py-rust-third-party.txt.
+
+Verified installed binary payload
+- _pi_heif.cp314-win_amd64.pyd: 55808 bytes; SHA-256 28922129c127627f41a14141f1e1220687498ae5d1721073e55b7c38fc3bb01e
+- libde265-0-20525ec60a58914ab50a2931d6f30837.dll: 965942 bytes; SHA-256 0dcd2e07a4d6a36675f15ad23528c681c50a982358a504d20dca9f0500c33031
+- libgcc_s_seh-1-7ae6ef6cd308b2641d26e0f0ad54de8d.dll: 150998 bytes; SHA-256 4ce1e246f8fb63d0d43f03fe54f9104762cd2d71d7fd981af28a167ce5508a63
+- libheif-cea702b8a799b81f6e1a18f3e8ee9d7c.dll: 2182389 bytes; SHA-256 f96ffb1f04c85fe8b2e7ccac79ac3c5d634068944cbd8a69a5ca008ff260594d
+- libstdc++-6-713bd0e402b4c0182869d2240ab08467.dll: 2661299 bytes; SHA-256 0e08dfab68ce05393d49a9337f20cbe4b9e3f79f57c49c822e11f0d36fa32fde
+- libwinpthread-1-2da71960a872bd1e59b60377f798f285.dll: 63840 bytes; SHA-256 2da71960a872bd1e59b60377f798f285ce630106509d6bd1d75e553f16218b7b
+- resvg_py/resvg_py.pyd: 2708992 bytes; SHA-256 9bbd3bf155c211e9370db13610b004ad5ac45d2228388e7ea43e1b5587c095d9

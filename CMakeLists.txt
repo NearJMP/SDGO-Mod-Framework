@@ -420,6 +420,32 @@ sdgo_add_mod(map_catalog DESCRIPTION "imported maps and missions"
                      support/native_resource_overlay/native_resource_overlay.cpp
                      support/native_resource_overlay/native_resource_overlay.def
              FILES symbols.fragment.ini)
+sdgo_add_mod(sticker_catalog DESCRIPTION "owned custom sticker definitions and images"
+             SOURCES mods/sticker_catalog/client.cpp
+                     support/native_resource_overlay/native_resource_overlay.cpp
+                     support/native_resource_overlay/native_resource_overlay.def
+             FILES symbols.fragment.ini)
+sdgo_add_mod(sticker_localization DESCRIPTION "exact baseline sticker Chinese names"
+             SOURCES mods/sticker_localization/sticker_localization.cpp)
+if(BUILD_TESTING)
+    add_executable(sticker_catalog_format_test tests/sticker_catalog_format_test.cpp)
+    target_link_libraries(sticker_catalog_format_test PRIVATE sdgo_api)
+    sdgo_strict(sticker_catalog_format_test)
+    add_test(NAME sticker_catalog_format COMMAND sticker_catalog_format_test)
+    add_executable(sticker_localization_dictionary_test tests/sticker_localization_dictionary_test.cpp)
+    target_link_libraries(sticker_localization_dictionary_test PRIVATE sdgo_api)
+    sdgo_strict(sticker_localization_dictionary_test)
+    add_test(NAME sticker_localization_dictionary COMMAND sticker_localization_dictionary_test)
+    add_library(sticker_catalog_ownership_fixture SHARED tests/sticker_catalog_ownership_fixture.cpp)
+    set_target_properties(sticker_catalog_ownership_fixture PROPERTIES OUTPUT_NAME sticker_catalog
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/sticker-ownership-fixture/$<CONFIG>"
+        ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/sticker-ownership-fixture/$<CONFIG>")
+    sdgo_strict(sticker_catalog_ownership_fixture)
+    add_executable(sticker_localization_provider_test tests/sticker_localization_provider_test.cpp mods/sticker_localization/sticker_localization.cpp)
+    target_link_libraries(sticker_localization_provider_test PRIVATE sdgo_api)
+    sdgo_strict(sticker_localization_provider_test)
+    add_test(NAME sticker_localization_provider COMMAND sticker_localization_provider_test $<TARGET_FILE:sticker_catalog_ownership_fixture>)
+endif()
 sdgo_add_mod(map_catalog_server SERVER DESCRIPTION "imported mission runtime policy"
              SOURCES mods/map_catalog_server/map_catalog_server.cpp FILES symbols.fragment.ini)
 if(BUILD_TESTING)
