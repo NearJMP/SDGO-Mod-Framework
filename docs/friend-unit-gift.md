@@ -9,6 +9,8 @@ The feature is off by default. Server owners turn on **启用好友机体赠送*
 
 Replies from other Mods sharing the carrier no longer overwrite the negotiated gift capabilities. Background detail reads and cached read failures also leave the friend-menu entry available. Opening an offer resumes a failed read-only request. Preview and confirmation still require complete selected-unit details and server approval; an unresolved previous mutation continues to block a new offer.
 
+When discovery receives no reply or its send fails, the client retries after 5, 15 and 60 seconds, then permits at most one retry per 60 seconds. Successful discovery restores the entry without another login. Only read-only discovery retries: it starts with the compatible short native request and expands only after verified server support. An explicit protocol rejection stops retries, and a disabled server policy keeps gifting disabled. Offers, acceptance and returns never resend automatically.
+
 ## Send and receive
 
 1. Right-click an accepted friend in the home screen's top-right **USER LIST** or the messenger, then choose the unit-gift action. Online and offline recipients are supported.

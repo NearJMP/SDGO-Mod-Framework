@@ -165,6 +165,7 @@ private:
         std::size_t size,
         SessionSnapshot* sent_session = nullptr) noexcept;
     bool SendExpandedProbe(std::uint64_t now_millis) noexcept;
+    void ScheduleProbeRetry(std::uint64_t now_millis) noexcept;
     bool AcceptInitialCapability(
         const Reply& reply,
         std::uint64_t now_millis) noexcept;
@@ -196,6 +197,8 @@ private:
     std::uint64_t server_epoch_ = 0;
     std::uint64_t session_key_ = 0;
     std::uint64_t deadline_ = 0;
+    std::uint64_t probe_retry_at_ = 0;
+    std::uint32_t probe_retries_ = 0;
     Request pending_{};
     bool has_pending_ = false;
     bool mutation_uncertain_ = false;

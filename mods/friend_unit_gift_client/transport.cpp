@@ -51,6 +51,8 @@ bool Transport::BindNative(
     server_epoch_ = 0;
     session_key_ = 0;
     deadline_ = 0;
+    probe_retry_at_ = 0;
+    probe_retries_ = 0;
     pending_ = {};
     has_pending_ = false;
     mutation_uncertain_ = false;
@@ -233,7 +235,9 @@ bool Transport::BeginProbe() noexcept {
 
 bool Transport::BeginProbeAt(
     std::uint64_t now_millis) noexcept {
-    if (!session_ || !send_ || has_pending_) return false;
+    if (!session_ || !send_ || has_pending_ ||
+        (probe_retry_at_ && now_millis < probe_retry_at_))
+        return false;
     const auto current = CurrentSession();
     if (!current.key) {
         ChangeState(ConnectionState::disconnected);
@@ -249,13 +253,27 @@ bool Transport::BeginProbeAt(
     has_pending_ = true;
     deadline_ = now_millis + kProbeTimeoutMillis;
     if (!SendBytes(probe.data(), probe.size())) {
+        ScheduleProbeRetry(now_millis);
         FailPending(
             WireStatus::send_failed,
-            ConnectionState::idle);
+            ConnectionState::unavailable);
         return false;
     }
     ChangeState(ConnectionState::probing_native);
     return true;
+}
+
+void Transport::ScheduleProbeRetry(std::uint64_t now_millis) noexcept {
+    constexpr std::uint64_t delays[] = {5000, 15000, 60000};
+    const auto index = probe_retries_ < 2 ? probe_retries_++ : 2;
+    probe_retry_at_ = now_millis + delays[index];
+    if (api_ && api_->Log && mod_) {
+        const auto saved = GetLastError();
+        api_->Log(mod_, SDGO_LOG_INFO,
+                  "gift discovery retry scheduled after %llu ms; read-only probes only",
+                  static_cast<unsigned long long>(delays[index]));
+        SetLastError(saved);
+    }
 }
 
 bool Transport::SendExpandedProbe(
@@ -271,6 +289,7 @@ bool Transport::SendExpandedProbe(
     has_pending_ = true;
     deadline_ = now_millis + kPolicyProbeTimeoutMillis;
     if (!SendBytes(packet.data(), packet.size())) {
+        ScheduleProbeRetry(now_millis);
         FailPending(
             WireStatus::send_failed,
             ConnectionState::unavailable);
@@ -368,6 +387,7 @@ bool Transport::AcceptInitialCapability(
         (reply.capabilities & required) != required) {
         native_probe_last_reason_ =
             NativeProbeReason::capability_rejected;
+        probe_retry_at_ = 0;
         if (api_ && api_->Log && mod_) {
             const auto saved = GetLastError();
             api_->Log(
@@ -459,6 +479,13 @@ bool Transport::OnStoragePacket(
     // From this point the envelope is positively ours. Consume even stale
     // replies so native 0x07BE parsing never sees the extension payload.
     if (state_ == ConnectionState::probing_native) {
+        // A delayed expanded reply belongs to its own GUID, not to this new
+        // ten-byte discovery. Consume it without rejecting the fresh probe.
+        if (reply.command != Command::hello || !Empty(reply.request_id)) {
+            Emit(EventKind::unexpected_reply, WireStatus::transport_invalid,
+                 reply.command, reply.request_id, &reply);
+            return true;
+        }
         ++native_probe_reply_count_;
         AcceptInitialCapability(reply, Now());
         return true;
@@ -503,6 +530,7 @@ void Transport::Complete(const Reply& reply) noexcept {
         if (reply.status != WireStatus::success ||
             (reply.capabilities & required) != required ||
             !(reply.flags & envelope_expanded_probe)) {
+            probe_retry_at_ = 0;
             Emit(
                 EventKind::request_failed,
                 WireStatus::transport_unavailable,
@@ -512,6 +540,8 @@ void Transport::Complete(const Reply& reply) noexcept {
             ChangeState(ConnectionState::unavailable);
             return;
         }
+        probe_retry_at_ = 0;
+        probe_retries_ = 0;
         ChangeState(
             mutation_uncertain_
                 ? ConnectionState::uncertain
@@ -564,6 +594,8 @@ void Transport::TickAt(std::uint64_t now_millis) noexcept {
         capabilities_ = 0;
         server_epoch_ = 0;
         session_key_ = 0;
+        probe_retry_at_ = 0;
+        probe_retries_ = 0;
         return;
     }
     if (session_key_ && current.key != session_key_) {
@@ -578,10 +610,19 @@ void Transport::TickAt(std::uint64_t now_millis) noexcept {
         }
         capabilities_ = 0;
         server_epoch_ = 0;
+        probe_retry_at_ = 0;
+        probe_retries_ = 0;
     } else if (state_ == ConnectionState::disconnected) {
         ChangeState(ConnectionState::idle);
     }
     session_key_ = current.key;
+    if (state_ == ConnectionState::unavailable && probe_retry_at_ &&
+        now_millis >= probe_retry_at_) {
+        probe_retry_at_ = 0;
+        // The authenticated game-thread caller owns the next BeginProbe.
+        // Tick never sends packets while the user is in an unrelated page.
+        ChangeState(ConnectionState::idle);
+    }
     if (!has_pending_ || !deadline_ ||
         now_millis < deadline_)
         return;
@@ -609,6 +650,7 @@ void Transport::TickAt(std::uint64_t now_millis) noexcept {
         }
         capabilities_ = 0;
         server_epoch_ = 0;
+        ScheduleProbeRetry(now_millis);
         FailPending(
             WireStatus::transport_unavailable,
             ConnectionState::unavailable);
@@ -642,6 +684,8 @@ void Transport::Reset(WireStatus reason) noexcept {
     capabilities_ = 0;
     server_epoch_ = 0;
     deadline_ = 0;
+    probe_retry_at_ = 0;
+    probe_retries_ = 0;
     pending_ = {};
     has_pending_ = false;
     session_key_ = current.key;

@@ -17,6 +17,7 @@ std::array<std::uint8_t, 0x100> session{};
 std::vector<std::vector<std::uint8_t>> sent;
 std::vector<TransportEvent> events;
 std::vector<Reply> event_replies;
+int send_result = 1;
 
 std::uint8_t* __cdecl Session() {
     return session.data();
@@ -35,7 +36,7 @@ int __cdecl CaptureSend(
     assert(size == static_cast<int>(kNativeProbeBytes) ||
            size == static_cast<int>(kCarrierBytes));
     sent.emplace_back(packet, packet + size);
-    return 1;
+    return send_result;
 }
 
 #if defined(_M_IX86)
@@ -92,6 +93,23 @@ std::array<std::uint8_t, kCarrierBytes> ReplyBytes(
     std::array<std::uint8_t, kCarrierBytes> bytes{};
     assert(EncodeReply(4001, reply, &bytes));
     return bytes;
+}
+
+void CompleteDiscovery(Transport& transport,std::uint32_t capabilities) {
+    Reply hello;
+    hello.command=Command::hello;
+    hello.capabilities=capabilities;
+    hello.server_epoch=500;
+    auto bytes=ReplyBytes(hello);
+    assert(transport.OnStoragePacket(kNativeReplyOpcode,bytes.data(),static_cast<std::uint32_t>(bytes.size())));
+    assert(transport.State()==ConnectionState::probing_expanded);
+    const auto request=DecodeSentRequest(sent.size()-1);
+    assert(request.command==Command::hello && (request.flags&envelope_read_only));
+    hello.request_id=request.request_id;
+    hello.flags=envelope_expanded_probe;
+    bytes=ReplyBytes(hello);
+    assert(transport.OnStoragePacket(kNativeReplyOpcode,bytes.data(),static_cast<std::uint32_t>(bytes.size())));
+    assert(transport.Ready());
 }
 
 } // namespace fixture
@@ -436,6 +454,120 @@ int main() {
     unresponsive_extension.TickAt(GetTickCount64() + 180000);
     assert(unresponsive_extension.State() == ConnectionState::unavailable);
     assert(!unresponsive_extension.Ready());
+
+    // A dropped first reply must not hide the feature until another login.
+    Transport recovery;
+    assert(recovery.BindNative(&Session,reinterpret_cast<Transport::NativeSend>(&NativeSendShim)));
+    const auto recovery_base=sent.size();
+    assert(recovery.BeginProbeAt(200000));
+    recovery.TickAt(203000);
+    assert(recovery.State()==ConnectionState::unavailable);
+    recovery.TickAt(207999);
+    assert(recovery.State()==ConnectionState::unavailable);
+    assert(!recovery.BeginProbeAt(207999));
+    recovery.TickAt(208000);
+    assert(recovery.State()==ConnectionState::idle);
+    assert(sent.size()==recovery_base+1); // Tick only permits the authenticated caller to retry.
+    assert(recovery.BeginProbeAt(208000));
+    assert(recovery.NativeProbeSendAttempts()==2);
+    CompleteDiscovery(recovery,capabilities);
+    assert(recovery.Capabilities()==capabilities);
+    assert(sent.size()==recovery_base+3);
+    const auto recovered_count=sent.size();
+    recovery.TickAt(GetTickCount64()+1000000);
+    assert(recovery.Ready()&&sent.size()==recovered_count);
+
+    Transport backoff;
+    assert(backoff.BindNative(&Session,reinterpret_cast<Transport::NativeSend>(&NativeSendShim)));
+    std::uint64_t at=500000;
+    for(const auto delay:{5000u,15000u,60000u,60000u}) {
+        assert(backoff.BeginProbeAt(at));
+        backoff.TickAt(at+3000);
+        assert(backoff.State()==ConnectionState::unavailable);
+        backoff.TickAt(at+3000+delay-1);
+        assert(backoff.State()==ConnectionState::unavailable);
+        backoff.TickAt(at+3000+delay);
+        assert(backoff.State()==ConnectionState::idle);
+        at+=3000+delay;
+    }
+    // New connections receive a fresh discovery budget without a previous delay.
+    SetConnection(-1);backoff.TickAt(at+1);
+    SetConnection(7);backoff.TickAt(at+2);
+    assert(backoff.State()==ConnectionState::idle);
+    assert(backoff.BeginProbeAt(at+2));
+    backoff.TickAt(at+3002);
+    backoff.TickAt(at+8002);
+    assert(backoff.State()==ConnectionState::idle);
+
+    // A stock inbox reply can belong to another native request. It does not
+    // authorize expansion, nor prove the missing capability reply unsupported.
+    Transport stock;
+    assert(stock.BindNative(&Session,reinterpret_cast<Transport::NativeSend>(&NativeSendShim)));
+    assert(stock.BeginProbeAt(10000));
+    assert(!stock.OnStoragePacket(kNativeReplyOpcode,native_reply.data(),static_cast<std::uint32_t>(native_reply.size())));
+    stock.TickAt(13000);stock.TickAt(17999);
+    assert(stock.State()==ConnectionState::unavailable&&stock.NativeProbeSendAttempts()==1);
+    stock.TickAt(18000);
+    assert(stock.State()==ConnectionState::idle&&stock.BeginProbeAt(18000));
+    assert(sent.back().size()==kNativeProbeBytes&&stock.NativeProbeSendAttempts()==2);
+    // An authenticated protocol rejection is authoritative and stops retries.
+    Transport rejected;
+    assert(rejected.BindNative(&Session,reinterpret_cast<Transport::NativeSend>(&NativeSendShim)));
+    assert(rejected.BeginProbeAt(10000));
+    Reply refusal;refusal.command=Command::hello;bytes=ReplyBytes(refusal);
+    assert(rejected.OnStoragePacket(kNativeReplyOpcode,bytes.data(),static_cast<std::uint32_t>(bytes.size())));
+    rejected.TickAt(1000000);
+    assert(rejected.State()==ConnectionState::unavailable&&rejected.NativeProbeSendAttempts()==1);
+    Transport disabled_policy;
+    assert(disabled_policy.BindNative(&Session,reinterpret_cast<Transport::NativeSend>(&NativeSendShim)));
+    assert(disabled_policy.BeginProbeAt(10000));
+    CompleteDiscovery(disabled_policy,capabilities&~capability_offer_enabled);
+    const auto disabled_count=sent.size();
+    disabled_policy.TickAt(GetTickCount64()+1000000);
+    assert(disabled_policy.Ready()&&!(disabled_policy.Capabilities()&capability_offer_enabled));
+    assert(sent.size()==disabled_count&&!disabled_policy.SendAt(offer,1000000));
+
+    Transport failed_send;
+    assert(failed_send.BindNative(&Session,reinterpret_cast<Transport::NativeSend>(&NativeSendShim)));
+    send_result=0;
+    assert(!failed_send.BeginProbeAt(10000));
+    assert(failed_send.State()==ConnectionState::unavailable);
+    assert(!failed_send.BeginProbeAt(14999));
+    assert(failed_send.NativeProbeSendAttempts()==1);
+    send_result=1;failed_send.TickAt(15000);
+    assert(failed_send.BeginProbeAt(15000));
+    assert(failed_send.NativeProbeSendAttempts()==2);
+
+    Transport late;
+    assert(late.BindNative(&Session,reinterpret_cast<Transport::NativeSend>(&NativeSendShim)));
+    assert(late.BeginProbeAt(10000));
+    Reply discovery_hello;
+    discovery_hello.command=Command::hello;
+    discovery_hello.capabilities=capabilities;
+    discovery_hello.server_epoch=501;
+    bytes=ReplyBytes(discovery_hello);
+    assert(late.OnStoragePacket(kNativeReplyOpcode,bytes.data(),static_cast<std::uint32_t>(bytes.size())));
+    const auto delayed_request=DecodeSentRequest(sent.size()-1);
+    const auto expired_at=GetTickCount64()+140000;
+    late.TickAt(expired_at);late.TickAt(expired_at+5000);
+    assert(late.State()==ConnectionState::idle);
+    assert(late.BeginProbeAt(expired_at+5000));
+    auto delayed=discovery_hello;delayed.request_id=delayed_request.request_id;delayed.flags=envelope_expanded_probe;
+    bytes=ReplyBytes(delayed);
+    assert(late.OnStoragePacket(kNativeReplyOpcode,bytes.data(),static_cast<std::uint32_t>(bytes.size())));
+    assert(late.State()==ConnectionState::probing_native);
+    CompleteDiscovery(late,capabilities);
+
+    Transport uncertain;
+    assert(uncertain.BindNative(&Session,reinterpret_cast<Transport::NativeSend>(&NativeSendShim)));
+    assert(uncertain.BeginProbeAt(10000));CompleteDiscovery(uncertain,capabilities);
+    const auto mutation_at=GetTickCount64();
+    assert(uncertain.SendAt(offer,mutation_at));
+    uncertain.TickAt(mutation_at+10000);
+    assert(uncertain.MutationUncertain());
+    const auto mutation_count=sent.size();
+    uncertain.TickAt(mutation_at+1000000);
+    assert(uncertain.State()==ConnectionState::uncertain&&sent.size()==mutation_count);
 
     std::cout << "friend unit gift transport tests passed\n";
     return 0;
