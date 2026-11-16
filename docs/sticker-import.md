@@ -1,5 +1,7 @@
 # Custom sticker import
 
+![Native library, placement preview, server-confirmed save and a fresh entry](sticker-import-demo.webp)
+
 Use **Mod Manager → Owner tools → Custom stickers** to turn an image into a native emblem. A project holds its name, transparent image and first-placement size. The generated client resources and server definitions form a pair; original emblems are preserved.
 
 Baseline Chinese sticker names are a [separate Mod](sticker-localization.md). Authored names remain under the author's control.
