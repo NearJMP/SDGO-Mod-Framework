@@ -13,6 +13,7 @@
 #include "material_guard.h"
 #include "inventory_loading_guard.h"
 #include "beam_target_guard.h"
+#include "crash_snapshot.h"
 
 namespace {
 const SdgoApi* g_api = nullptr;
@@ -385,6 +386,35 @@ void LogOriginalException(const ExceptionFrame& frame) {
         static_cast<unsigned long>(context.Esi), static_cast<unsigned long>(context.Edi),
         static_cast<unsigned long>(context.Ebp), static_cast<unsigned long>(context.Esp),
         static_cast<unsigned long>(context.Eip));
+    const auto site=reinterpret_cast<uintptr_t>(record.ExceptionAddress);
+    const auto host=reinterpret_cast<uintptr_t>(g_api->host_base);
+    if(record.ExceptionCode!=EXCEPTION_ACCESS_VIOLATION||!host||moduleBase!=host||site>=moduleEnd)return;
+    std::array<uint8_t,32> bytes{};
+    const auto count=moduleEnd-site<bytes.size()?moduleEnd-site:bytes.size();
+    if(sdgo::native_crash::Copy(record.ExceptionAddress,bytes.data(),count)){
+        constexpr char hex[]="0123456789ABCDEF";char text[97]{};
+        for(size_t i=0;i<count;++i){text[i*3]=hex[bytes[i]>>4];text[i*3+1]=hex[bytes[i]&15];text[i*3+2]=' ';}
+        g_api->Log(g_mod,SDGO_LOG_ERROR,"native exception live site address=%08lX bytes=%s",
+                   static_cast<unsigned long>(site),text);
+    }
+    // Only this verified node-dispatch fault establishes the ESI/EDI layout.
+    // Record pointer values around the failing slot; never repair or walk them.
+    if(site-host==0x7ecf38&&context.Eip==site){
+        const auto snapshot=sdgo::native_crash::Model(context.Esi,context.Edi,
+            static_cast<uint32_t>(host+0xaea9dc),static_cast<uint32_t>(host+0xaf2e3c));
+        g_api->Log(g_mod,SDGO_LOG_ERROR,
+            "native model fault model=%08lX vtable=%08lX resource=%08lX layout=%u header=%u bounds=%u nodes=%08lX..%08lX aux12c=%08lX entries=%lu",
+            static_cast<unsigned long>(context.Esi),static_cast<unsigned long>(snapshot.vtable),
+            static_cast<unsigned long>(snapshot.resource),snapshot.layout,snapshot.header,snapshot.bounds,
+            static_cast<unsigned long>(snapshot.begin),static_cast<unsigned long>(snapshot.end),
+            static_cast<unsigned long>(snapshot.aux12c),static_cast<unsigned long>(snapshot.entries));
+        g_api->Log(g_mod,SDGO_LOG_ERROR,
+            "native model node window readable=%u start=%lu count=%lu values=%08lX,%08lX,%08lX,%08lX,%08lX",
+            snapshot.window,static_cast<unsigned long>(snapshot.window_start),static_cast<unsigned long>(snapshot.window_count),
+            static_cast<unsigned long>(snapshot.nodes[0]),static_cast<unsigned long>(snapshot.nodes[1]),
+            static_cast<unsigned long>(snapshot.nodes[2]),static_cast<unsigned long>(snapshot.nodes[3]),
+            static_cast<unsigned long>(snapshot.nodes[4]));
+    }
 }
 
 BOOL WINAPI PreservedStackWalk(

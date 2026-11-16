@@ -375,6 +375,7 @@ void Run(SdgoModLoadFn entry, HMODULE dll) {
     SdgoApi api{}; api.size = sizeof(api); api.version = SDGO_API_VERSION;
     api.Symbol = Symbol; api.HookCode = HookCode; api.HookSite = HookSite;
     api.HookImport = HookImport; api.Log = Log;
+    api.host_base=GetModuleHandleW(nullptr);
     missingSymbol = true;
     Check(!entry(&api, nullptr) && !lookupHook && bounds[6] == 0x7F,
           "missing verified dependency refuses activation before mutation");
@@ -546,7 +547,7 @@ void Run(SdgoModLoadFn entry, HMODULE dll) {
           writerAfter.Esp == originalBefore.Esp && walkAfter.Eax == 0xDEADBEEF &&
           walkAfter.Ebp == 0x001AFFEC && walkAfter.Esp == 0x001AFFE4,
           "StackWalk mutation cannot pollute the registers printed by the native writer");
-    bool hasRecord = false, hasRegisters = false, hasModule = false;
+    bool hasRecord = false, hasRegisters = false, hasModule = false,hasLiveCode=false;
     for (const auto& line : logs) {
         hasRecord = hasRecord || (line.find("code=C0000005") != std::string::npos &&
             line.find("access=1") != std::string::npos &&
@@ -557,9 +558,11 @@ void Run(SdgoModLoadFn entry, HMODULE dll) {
             line.find("eip=99999999") != std::string::npos);
         hasModule = hasModule || (line.find("module=00000000..00000000") == std::string::npos &&
             line.find("module=") != std::string::npos);
+        hasLiveCode=hasLiveCode||line.find("native exception live site address=")!=std::string::npos;
     }
     Check(hasRecord && hasRegisters && hasModule,
           "accurate exception, access, module-range and original-register diagnostics are recorded");
+    Check(hasLiveCode,"crash diagnostics retain readable live host instructions, including installed patches");
     CONTEXT outside{}; outside.Eax = 7;
     STACKFRAME outsideFrame{}; walkContext = nullptr;
     reinterpret_cast<StackWalkFn>(stackWalkHook)(

@@ -13,6 +13,7 @@ Fixes client crashes when unit data is missing or unit management is still waiti
 - A missing derived record during unit-information refresh follows the game's existing zero-denominator path and retains the default percentage instead of reading a null pointer.
 - When a model has no optional transform metadata, its base-model loading continues through the original finalization and completion steps.
 - Native exception reporting walks a separate context copy, so its exception address, access type, module range and registers remain the original pre-walk values.
+- Access violations also retain readable live host instruction bytes, including installed hooks. The verified model-node dispatch fault adds a bounded window of node pointer values; an unmatched layout or unreadable range stops that diagnostic read.
 - When unit management waits for inventory data, the service keeps its own native-cloned message instead of retaining the dispatcher's temporary object.
 - Model material lookups check the actual native container before reading a slot. Missing optional decal materials advance to the next slot while retaining the model's original commit and finalization path. This shared lookup protects unit presentations used by the encyclopedia, capsule previews and other native pages.
 - Room cameras accept only the native 0–29 sample range. An invalid drag or slider result retains the prior selection. A missing model or invalid camera state skips that frame's camera update; later ready frames use the original update normally.
