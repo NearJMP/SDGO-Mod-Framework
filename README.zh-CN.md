@@ -155,11 +155,6 @@
 | [扭蛋价格探针（Experimental）](docs/capsule-price-probe.md) <!-- catalog: `capsule_price_probe` --> | 只读记录扭蛋列表价格标签的刷新 |
 | [GameTest（Experimental）](docs/game-test.zh-CN.md) <!-- catalog: `appearance_probe`、`game_test_client`、`game_test_server` --> | 原生登录、入房、Ready、单客户端与多客户端协同对战，以及页面检查 |
 
-## 致谢
-
-- [自定义机体外观](docs/unit-appearance.zh-CN.md)的创意参考了 [B 站用户（UID：6664566）](https://space.bilibili.com/6664566) 的思路，感谢启发。
-- [副官模板](docs/operator-assistant.zh-CN.md)参考了 [幻羽未来（B 站 UID：564285）](https://space.bilibili.com/564285) 分享的模板，感谢分享。
-
 ## 项目文档
 
 [构建与开发接口](docs/framework.md) · [贡献与 AI 披露规则](docs/contributing.zh-CN.md) · [配置与排错](docs/setup.zh-CN.md)

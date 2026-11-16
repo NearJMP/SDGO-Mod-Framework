@@ -158,11 +158,6 @@ Protocol analysis, troubleshooting and native automated tests for developers.
 | [Capsule price probe (Experimental)](docs/capsule-price-probe.md) <!-- catalog: `capsule_price_probe` --> | Read-only log of capsule list price label refreshes |
 | [Native GameTest (Experimental)](docs/game-test.md) <!-- catalog: `appearance_probe`, `game_test_client`, `game_test_server` --> | Native login, room entry, Ready, single-client and coordinated multiplayer battles, and page checks |
 
-## Acknowledgements
-
-- [Custom unit appearance](docs/unit-appearance.md) was inspired by [Bilibili user (UID 6664566)](https://space.bilibili.com/6664566).
-- [Operator templates](docs/operator-assistant.md) reference the templates shared by [幻羽未来 (Bilibili UID 564285)](https://space.bilibili.com/564285).
-
 ## Project documentation
 
 [Build and developer API](docs/framework.md) · [Contribution and AI disclosure rules](docs/contributing.zh-CN.md) · [Setup and troubleshooting](docs/setup.md)
