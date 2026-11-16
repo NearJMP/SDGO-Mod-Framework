@@ -84,6 +84,22 @@ void __stdcall CaptureReturn(const std::uint8_t* stack,unsigned battle){
         if(bound){BindModel(model,record);models[model].battle=battle==1;models[model].room=battle==2;}else models.erase(model);
     }catch(...){ }SetLastError(error);
 }
+// The cinematic constructor joins its null alternate-model branch at 503B16.
+// Observe at that join, after the optional style call and its stack cleanup:
+// patching 503B13 would overwrite the destination of the incoming branch.
+void __stdcall CaptureCinematicReturn(const unsigned* registers){
+    struct RestoreError{DWORD value=GetLastError();~RestoreError(){SetLastError(value);}} restoreError;
+    std::array<unsigned,8> saved{};
+    if(!Copy(registers,saved.data(),sizeof saved))return;
+    const auto* actor=reinterpret_cast<const std::uint8_t*>(saved[1]);
+    const auto* frame=reinterpret_cast<const std::uint8_t*>(saved[2]);
+    std::array<unsigned,4> args{};
+    if(!actor||!frame||!Copy(actor+0xab4,&args[0],4)||!args[0]||
+       !Copy(frame-0x10,&args[1],4)||args[1]!=saved[0]+0x54||
+       saved[4]!=saved[0]+0x68)return;
+    args[3]=saved[4];
+    CaptureReturn(reinterpret_cast<const std::uint8_t*>(args.data()),1);
+}
 void __stdcall CaptureHuman(const std::uint8_t* frame){
     const auto error=GetLastError();try{
         std::array<std::uint8_t,24> args{};if(!Copy(frame,args.data(),args.size()))return;

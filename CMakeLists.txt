@@ -121,6 +121,11 @@ if(BUILD_TESTING)
     target_link_libraries(rgb_paint_sync_test PRIVATE sdgo_rgb_paint user32)
     sdgo_strict(rgb_paint_sync_test)
     add_test(NAME rgb_paint_sync_test COMMAND rgb_paint_sync_test)
+    add_executable(rgb_cinematic_branch_test tests/rgb_cinematic_branch_test.cpp)
+    target_link_libraries(rgb_cinematic_branch_test PRIVATE sdgo_rgb_paint user32 minhook)
+    sdgo_strict(rgb_cinematic_branch_test)
+    add_test(NAME rgb_cinematic_branch_test COMMAND rgb_cinematic_branch_test
+        "${CMAKE_CURRENT_SOURCE_DIR}/mods/unit_appearance_client/symbols.fragment.ini")
 endif()
 sdgo_strict(sdgo_rgb_paint)
 

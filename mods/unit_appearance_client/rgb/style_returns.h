@@ -35,10 +35,21 @@ RGB_RETURN(21,0)
 RGB_RETURN(22,1)
 RGB_RETURN(23,1)
 RGB_RETURN(24,1)
-RGB_RETURN(25,1)
 RGB_RETURN(26,1)
 RGB_RETURN(27,2)
 #undef RGB_RETURN
+// Both the styled and null alternate-model paths enter at this exact address.
+// The constructor already removed its cdecl arguments, so recover only the
+// verified callee-saved actor/frame/decal context instead of reading that stack.
+__declspec(naked) void StyleReturn25(){
+__asm { pushfd } __asm { pushad } __asm { mov eax,esp }
+__asm { sub esp,210h } __asm { and esp,0FFFFFFF0h }
+__asm { mov [esp+200h],eax } __asm { fxsave [esp] }
+__asm { fninit } __asm { ldmxcsr dword ptr [mxcsr] } __asm { cld }
+__asm { push eax } __asm { call CaptureCinematicReturn } __asm { fxrstor [esp] }
+__asm { mov esp,[esp+200h] } __asm { popad } __asm { popfd }
+__asm { jmp dword ptr [returnSites+25*4] }
+}
 bool BindStyleReturns(){
     return api->HookSite(mod,"rgb_paint.style_return_0",reinterpret_cast<void*>(&StyleReturn0),&returnSites[0])&&
         api->HookSite(mod,"rgb_paint.style_return_1",reinterpret_cast<void*>(&StyleReturn1),&returnSites[1])&&
