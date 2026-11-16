@@ -4,6 +4,8 @@
 
 **SDGO Mod Manager → 机体外观** (Unit appearance) provides independent RGB paint and free surface sticker switches. Editing stays in the native paint and emblem pages. Colors and placements belong to each owned unit and are shared with viewers using the companion module.
 
+Thanks to [Bilibili user (UID 6664566)](https://space.bilibili.com/6664566) for inspiring the custom unit appearance feature.
+
 ## Installation and settings
 
 In Manager, install the client and World components and their communication dependencies, and enable Unit appearance. Select RGB paint and/or free stickers, save, and restart the corresponding programs when prompted. Communication uses the friend-unit-gift carrier; gifting itself can remain disabled.
