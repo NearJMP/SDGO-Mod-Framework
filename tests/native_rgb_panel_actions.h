@@ -1,4 +1,17 @@
 // Real pointer/keyboard interaction shared by native RGB acceptance providers.
+bool ClickRgbMode(void* page){
+    using String=sdgo::hangar::ui::NativeString;String key;key.data.pointer=L"RgbModeLabel";key.length=key.capacity=12;
+    const auto find=reinterpret_cast<sdgo::hangar::ui::Bindings::Find>(ownerApi->Symbol(ownerMod,"hangar.ui_find_control"));
+    auto* root=page?At<void*>(page,0xd0):nullptr;auto* control=root&&find?find(root,&key,4):nullptr;
+    if(!control||!At<std::uint8_t>(control,0x162))return false;
+    float x=At<float>(control,0x148),y=At<float>(control,0x14c);auto* parent=At<void*>(control,0x15c);
+    for(unsigned depth=0;parent&&depth<8;++depth){x+=At<float>(parent,0x148);y+=At<float>(parent,0x14c);parent=At<void*>(parent,0x15c);}
+    if(parent)return false;x+=At<int>(control,0x154)*.5f;y+=At<int>(control,0x158)*.5f;
+    const auto app=reinterpret_cast<void*(__cdecl*)()>(ownerApi->Symbol(ownerMod,"game.app"));if(!app||!app())return false;
+    const auto hwnd=At<HWND>(app(),0x3c);RECT r{};if(!GetClientRect(hwnd,&r)||!r.right||!r.bottom)return false;
+    const auto point=MAKELPARAM(int(x*r.right/1024),int(y*r.bottom/768));
+    SendMessageW(hwnd,WM_LBUTTONDOWN,MK_LBUTTON,point);SendMessageW(hwnd,WM_LBUTTONUP,0,point);return true;
+}
 bool ExercisePanel(const SdgoGameTestContextV1* context,void* page){
     using App=void*(__cdecl*)();
     const auto app=reinterpret_cast<App>(ownerApi->Symbol(ownerMod,"game.app"));
@@ -8,6 +21,7 @@ bool ExercisePanel(const SdgoGameTestContextV1* context,void* page){
     auto type=[&](const wchar_t* text){for(;*text;++text)SendMessageW(hwnd,WM_CHAR,*text,0);SendMessageW(hwnd,WM_KEYDOWN,VK_RETURN,0);};
     auto select=[&](unsigned i){auto* c=At<void*>(page,0x14c+i*4);float x=At<float>(c,0x148),y=At<float>(c,0x14c);for(auto* p=At<void*>(c,0x15c);p;p=At<void*>(p,0x15c)){x+=At<float>(p,0x148);y+=At<float>(p,0x14c);}click(static_cast<int>(x)+25,static_cast<int>(y)+25);};
     SdgoRgbPaintObservationV1 originalState;ObservePanel(originalState);
+    if(!originalState.editing){if(!ClickRgbMode(page)||!ObservePanel(originalState)||!originalState.editing)return false;}
     click(970,410);type(L"256");SdgoRgbPaintObservationV1 invalid;ObservePanel(invalid);
     bool ok=invalid.invalid_input&&std::memcmp(invalid.rgb,originalState.rgb,sizeof invalid.rgb)==0;
     context->Assert(ok,"native RGB numeric input rejects 256 without changing preview");
@@ -26,9 +40,9 @@ bool ExercisePanel(const SdgoGameTestContextV1* context,void* page){
     click(940,570);SdgoRgbPaintObservationV1 restored;ObservePanel(restored);
     const bool reset=restored.present_mask==originalState.present_mask&&std::memcmp(restored.rgb,originalState.rgb,sizeof restored.rgb)==0;
     context->Assert(reset,"native restore returns all six regions to entry colors");ok=reset&&ok;
-    click(940,640);SdgoRgbPaintObservationV1 nativeMode;ObservePanel(nativeMode);
+    if(!ClickRgbMode(page))return false;SdgoRgbPaintObservationV1 nativeMode;ObservePanel(nativeMode);
     context->Assert(!nativeMode.editing,"return to stock palette disables RGB editing");ok=!nativeMode.editing&&ok;
-    click(940,640);SdgoRgbPaintObservationV1 reopened;ObservePanel(reopened);
+    if(!ClickRgbMode(page))return false;SdgoRgbPaintObservationV1 reopened;ObservePanel(reopened);
     const bool fresh=reopened.editing&&reopened.present_mask==originalState.present_mask&&std::memcmp(reopened.rgb,originalState.rgb,sizeof reopened.rgb)==0;
     context->Assert(fresh,"reopening RGB starts with current native paint");ok=fresh&&ok;
     const wchar_t* colors[]={L"FF0048",L"FFE0F5",L"FF9BDA",L"FFC0C0",L"FFC0C0",L"FF0080"};

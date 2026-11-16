@@ -515,4 +515,6 @@ ffmpeg -i capture.mkv -t 12 -an -vf "fps=12,scale=900:-2" -c:v libwebp_anim -qua
 
 使用 `--pages-only --page-group appearance`，通过原生入口打开机体外观页面，验证服务器读取、编辑器显示与取消。需要 GameTest 客户端 0.1.45、`appearance_probe` 和配套外观组件；探针只在显式 GameTest 任务中运行，沿用真实控件、资源和通信。启用真实保存用例前准备已有测试机体和纹章库存；用例会明确核对消耗，不能把空库存或无服务端的页面当作保存成功。
 
+隔离外观探针还支持同时设置 `SDGO_APPEARANCE_RGB_TEST=1`、`SDGO_RGB_ENTRY_TEST=1`，检查原生入口、页面切换、按钮进入 RGB 与取消，且不保存调色草稿。设置 `SDGO_SURFACE_DEMO_DIR` 时采集进出动画帧供目视核对。图层保存用例通过正式鼠标消息操作；`SDGO_SURFACE_NATIVE_STICKERS=1` 检查已占用一个原生贴纸槽，再加 `SDGO_SURFACE_NATIVE_THREE=1` 检查三个槽。`SDGO_SURFACE_EXPECTED_DESIGN` 可指向此前的权威设计文件，核对新进程重载的数据完全一致。
+
 开发录制镜头可以启用 `BattleReviewCamera`；`BattleReviewPilot=0` 轮流观察 AI，指定测试玩家编号后按 `BattleReviewCameraSeconds` 在本机和该玩家之间切换。它只改变镜头目标，不能代替真人入房、Ready、开局、实际绘制与结算证据。机体在画面外时未产生绘制计数，不能据此宣称贴花消失，也不能算可见性通过。

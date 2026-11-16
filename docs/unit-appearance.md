@@ -14,14 +14,14 @@ Do not manually install the legacy DLLs alongside this module. Explicit conflict
 
 ## RGB paint
 
-![Adjust RGB and confirm a save on the native paint page](rgb-paint-demo.webp)
+![Enter RGB from the native palette, edit and return to native paint](rgb-paint-demo.webp)
 
-1. Open the native paint page, wait for server colors, and select a region swatch on the left.
+1. Select Paint in the factory to open the native palette. Click “RGB 取色” to enter RGB editing, wait for server colors, and select a region swatch on the left.
 2. Drag the hue strip, color square or R/G/B sliders. Channels range from 0 to 255; numeric fields apply with Enter, and the hex field accepts six digits such as `#FF0048`. Invalid input preserves the color; Esc cancels input.
 3. “清洗当前区域” restores the selected region's original material; “还原全部” restores the last confirmed palette.
 4. Select “保存涂装”, review, and confirm again. Success requires the server acknowledgement. Leaving discards unsaved edits; an uncertain save triggers a fresh read without automatically overwriting data.
 
-“原生涂装” returns to native palette controls. Changing stock paint invalidates the previous RGB configuration for that unit. Colors apply in the lobby, room, battle and transformed models of the same unit. Separate instances of the same model keep separate records. Native transparency, cloaking, textures and gloss remain controlled by the original materials.
+The RGB entry sits below the right inventory, with space around the pagination frame, and moves with the panel during page transitions. “原生涂装” returns to native palette controls. Reopening the paint page defaults to the native palette again; server color updates preserve the selected mode. Changing stock paint invalidates the previous RGB configuration for that unit. Colors apply in the lobby, room, battle and transformed models of the same unit. Separate instances of the same model keep separate records. Native transparency, cloaking, textures and gloss remain controlled by the original materials.
 
 RGB mode owns clicks and drags on its controls and suspends mouse handling in the covered inventory, preventing accidental item drags. Gestures retain their release event outside the controls. Native inventory input resumes after switching to native paint and releasing the mouse. The preview area remains interactive. This input isolation coexists with OC.
 
@@ -43,6 +43,10 @@ Wrapping starts at the hit surface and crosses only touching armor seams with a 
 
 ## Troubleshooting and AI handoff
 
+Placement mode uses left clicks or drags for positioning and the right button for orbiting. Orbit mode restores left-button rotation. This input ownership is maintained during model loading and native preview replacement. Failed placement distinguishes an unready model, a click outside the model viewport and a missed surface; the preview/save prompt means the draft accepted the position.
+
+An empty layer list disables duplication, deletion, ordering and saving; Properties, Library, Add and Cancel remain clickable. If the editor opens but all of those buttons are unresponsive, update the unit appearance client and restart the game.
+
 Check both hosts' component switches, communication dependencies, host compatibility and restart prompts in Manager. For loading waits, inspect the room's BattleServer and [multiplayer loading synchronization](loading-sync-fix.md).
 
 Use the feature's Copy for AI or bug-report entry. Include client/World versions, the affected page, reproduction steps and messages. State whether both components are enabled, whether the issue occurs only in rooms, and whether stickers or forms changed. Hide account details in screenshots; exclude credentials, databases and complete game assets.
@@ -56,6 +60,8 @@ Rooms bind complete unit identities through actual player slots, allowing fewer 
 Battle sticker visibility checks the material groups covered by the projected triangles and follows each group's native opacity. The native cubemap flag denotes reflection; hidden parts and special blend/depth passes do not receive projections. Both native-sticker suppression and projected drawing use the same eligibility check. RGB inventory input intercepts the verified virtual update slot and forwards to the native update body, preserving OC's observer on that body.
 
 Manager's `consolidates` contract maps legacy modules to registered boolean switches and requires explicit conflicts. Imports, programme updates and profile installs reuse their transactions and backups; reinstalling preserves the unified module's choices. Development-only native observers check exact unit identity, server records, current-scene six-region materials and sustained sticker drawing. Captured frames still require inspection for occlusion and actual placement.
+
+The editor does not load fixed-width native button skins. Custom backgrounds and hit regions share the same layout. Window mouse messages use coordinates scaled to the window and panel position; a button activates only when pressed and released within the same enabled control. Releasing outside, losing focus or leaving the page cancels the click. Layer drags and sliders retain pointer capture; the native entry keeps its own skins and events.
 
 ### Independent decal protocol
 

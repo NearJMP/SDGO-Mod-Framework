@@ -104,7 +104,7 @@ layer::Policy policy;std::vector<layer::Stock> stock;bool catalogueWanted=false;
 layerwire::Token quoteToken{};std::vector<layer::Cost> quotedCosts;unsigned commitRetries=0;
 bool saveQueued=false;
 layerwire::Token lastCommit{};
-HWND inputWindow=nullptr;bool pointerOwned=false;
+HWND inputWindow=nullptr;bool pointerOwned=false,placementPointerOwned=false;
 constexpr UINT_PTR inputSubclass=0x53444332;
 std::atomic<bool> inventoryBlocked{false};
 std::uint32_t drawCount=0;
@@ -166,7 +166,7 @@ void RestoreInput(){
         Put<std::uint8_t>(preview,0x263,previewInput);Put<std::uint8_t>(preview,0x264,previewPitch);
         Put<std::uint8_t>(preview,0x261,0);Put<std::uint8_t>(preview,0x262,0);
     }}
-    inputHeld=false;preview=nullptr;dragging=false;mouseDown=false;
+    inputHeld=false;preview=nullptr;dragging=false;mouseDown=false;placementPointerOwned=false;
 }
 void RestoreFooter(){
     auto* factory=Service(factoryTable);
@@ -328,10 +328,13 @@ void Save(){
 }
 bool PlaceAt(double x,double y){
     const auto* old=layer::Find(editor.Preview(),selected);
-    if(!editing||!placing||armed||BlockingRequest()||editor.State()!=EditState::editing||!old)return false;
+    if(!editing||!placing||armed||editor.State()!=EditState::editing)return false;
+    if(BlockingRequest()){notice=L"正在读取纹章，请稍后放置";return false;}
+    if(!old){notice=L"请先从纹章库选择图层";return false;}
+    unsigned matching=0,fresh=0,rays=0,hits=0;
     const auto now=GetTickCount64();double nearest=std::numeric_limits<double>::infinity();Placement best;bool found=false;
-    for(auto& item:models){auto& m=item.second;if(!SameStickers(editor.Preview(),m)||m.battle||m.room)continue;
-        for(auto& n:m.nodes){if(now-n.viewed>150)continue;Ray ray;Hit hit;if(!ScreenRay(n.view,x,y,ray)||Pick(n.surface.mesh,ray,hit)!=Result::ok)continue;
+    for(auto& item:models){auto& m=item.second;if(!SameStickers(editor.Preview(),m)||m.battle||m.room)continue;++matching;
+        for(auto& n:m.nodes){if(now-n.viewed>150)continue;++fresh;Ray ray;Hit hit;if(!ScreenRay(n.view,x,y,ray))continue;++rays;if(Pick(n.surface.mesh,ray,hit)!=Result::ok)continue;++hits;
             const auto length=std::hypot(ray.direction.x,ray.direction.y,ray.direction.z);
             const Vec3 point{ray.origin.x+ray.direction.x/length*hit.distance,ray.origin.y+ray.direction.y/length*hit.distance,ray.origin.z+ray.direction.z/length*hit.distance};
             Vec3 projected;if(!Transform(point,Multiply(Multiply(n.view.world,n.view.camera),n.view.projection),projected)||projected.z<0||projected.z>1||projected.z>=nearest)continue;
@@ -339,7 +342,12 @@ bool PlaceAt(double x,double y){
             if(old->placed)p.rotation=old->placement.rotation;Patch test;
             if((old->style.wrap?ProjectWrapped(n.surface.mesh,n.surface.geometry,n.surface.index,p,test):Project(n.surface.mesh,n.surface.geometry,n.surface.index,p,test))!=Result::ok)continue;
             best=p;nearest=projected.z;found=true;}}
-    if(!found)return false;InvalidateQuote();notice=L"预览中，核对后保存";return editor.Place(selected,best);
+    if(!found){
+        notice=!matching?L"正在等待机体模型":!fresh?L"机体画面未就绪，请稍候":!rays?L"点击位置不在模型视口":!hits?L"未命中表面，请换个位置":L"此处无法放置，请换个位置";
+        return false;
+    }
+    InvalidateQuote();if(!editor.Place(selected,best)){notice=L"放置未完成，请重新选择图层";return false;}
+    notice=L"预览中，核对后保存";return true;
 }
 void ApplyCommand(const ui::Command&);
 void Action(ui::Action action){
@@ -380,43 +388,25 @@ void ApplyCommand(const ui::Command& command){
         if(p.width<=30&&p.height<=30)editor.Place(selected,p);}
     notice=L"调整参数不重复扣费";
 }
-bool LogicalPoint(HWND window,LPARAM lparam,float& x,float& y){
-    RECT rect{};if(!GetClientRect(window,&rect)||rect.right<=0||rect.bottom<=0)return false;
-    x=GET_X_LPARAM(lparam)*1024.f/rect.right;y=GET_Y_LPARAM(lparam)*768.f/rect.bottom;return true;
+#include "preview_input.inl"
+bool PreviewContains(float x,float y){
+    auto* live=page.Preview(Service(factoryTable));if(!live)return false;AcquirePreviewInput(live);
+    auto* parent=Read<void*>(live,0x15c);if(!parent)return false;
+    return ui::Rect{Read<float>(parent,0x148)+Read<float>(live,0x148),Read<float>(parent,0x14c)+Read<float>(live,0x14c),float(Read<int>(live,0x154)),float(Read<int>(live,0x158))}.Contains(x,y);
 }
-LRESULT CALLBACK InputProc(HWND window,UINT message,WPARAM wp,LPARAM lp,UINT_PTR,DWORD_PTR){
-    if(message==WM_NCDESTROY){pointerOwned=false;page.PointerUp();RemoveWindowSubclass(window,&InputProc,inputSubclass);inputWindow=nullptr;return DefSubclassProc(window,message,wp,lp);}
-    if(message==WM_KILLFOCUS||message==WM_CANCELMODE||message==WM_CAPTURECHANGED){
-        std::lock_guard<std::recursive_mutex> hold(gate);const bool owned=pointerOwned;page.PointerUp();pointerOwned=false;
-        if(message!=WM_CAPTURECHANGED&&owned&&GetCapture()==window)ReleaseCapture();
-    }
-    if(message==WM_MOUSEWHEEL){std::lock_guard<std::recursive_mutex> hold(gate);POINT point{GET_X_LPARAM(lp),GET_Y_LPARAM(lp)};ScreenToClient(window,&point);RECT rect{};GetClientRect(window,&rect);
-        if(rect.right>0&&rect.bottom>0&&page.Scroll(point.x*1024.f/rect.right,point.y*768.f/rect.bottom,GET_WHEEL_DELTA_WPARAM(wp)/WHEEL_DELTA))return 0;}
-    if(message==WM_LBUTTONDOWN||message==WM_LBUTTONDBLCLK||message==WM_MOUSEMOVE||message==WM_LBUTTONUP){
-        std::lock_guard<std::recursive_mutex> hold(gate);float x=0,y=0;
-        if(editing&&page.Visible()&&LogicalPoint(window,lp,x,y)){
-            if(message==WM_LBUTTONDOWN||message==WM_LBUTTONDBLCLK){
-                const auto command=page.PointerDown(x,y);ApplyCommand(command);
-                if(page.Captured()){pointerOwned=true;SetCapture(window);return 0;}
-            }else if(message==WM_MOUSEMOVE){const auto command=page.PointerMove(x,y);if(pointerOwned){ApplyCommand(command);return 0;}}
-            else if(pointerOwned){page.PointerUp();pointerOwned=false;if(GetCapture()==window)ReleaseCapture();return 0;}
-        }else if(pointerOwned){page.PointerUp();pointerOwned=false;if(GetCapture()==window)ReleaseCapture();return 0;}
-    }
-    return DefSubclassProc(window,message,wp,lp);
-}
+#include "input.inl"
 IDirect3DBaseTexture9* Thumbnail(unsigned sticker){
     std::lock_guard<std::recursive_mutex> hold(gate);if(auto* texture=textures.Get(sticker)){texture->AddRef();return texture;}return nullptr;
 }
 std::wstring StickerName(unsigned sticker){std::lock_guard<std::recursive_mutex> hold(gate);return textures.Name(sticker);}
 void BindFactory(void* factory,const Appearance& record){
     auto* multi=page.Preview(factory);if(!multi)return;
+    AcquirePreviewInput(multi);
     auto** first=Read<void**>(multi,0x21c);auto** end=Read<void**>(multi,0x220);
     if(!first||end<first||end-first>8)return;
     for(auto** p=first;p!=end;++p){if(!*p)continue;auto* model=Read<void*>(*p,0x34);auto found=models.find(model);if(found==models.end())continue;
         auto& m=found->second;if(m.uid!=record.unitSerial||m.type!=record.unitType){m.uid=record.unitSerial;m.type=record.unitType;m.projected={};wanted.insert(m.uid);}
     }
-    if(editing&&!inputHeld){preview=multi;previewInput=Read<std::uint8_t>(multi,0x263);previewPitch=Read<std::uint8_t>(multi,0x264);
-        Put<std::uint8_t>(multi,0x263,1);Put<std::uint8_t>(multi,0x264,1);inputHeld=true;}
 }
 void TickPage(void* service){
     auto* factory=Service(factoryTable);if(!factory)return;
@@ -435,22 +425,6 @@ void TickPage(void* service){
     // Native selection/replacement remains native. A draft never uses another
     // sticker's texture, nor can it silently become a save for the new unit.
     if(editing&&current){for(unsigned i=0;i<3;++i)if(record.slots[i].sticker!=current->equipped[i]){Close();wanted.insert(record.unitSerial);notice=L"请先完成原生贴纸保存";break;}}
-    if(editing&&placing&&!pointerOwned){
-        auto* application=app?app():nullptr;const HWND window=application?Read<HWND>(application,0x3c):nullptr;
-        DWORD owner=0;GetWindowThreadProcessId(GetForegroundWindow(),&owner);
-        if(window&&owner==GetCurrentProcessId()){
-            POINT point{};GetCursorPos(&point);ScreenToClient(window,&point);
-            const bool down=(GetAsyncKeyState(VK_LBUTTON)&0x8000)!=0;
-            const bool orbit=(GetAsyncKeyState(VK_RBUTTON)&0x8000)!=0;
-            if(orbit)dragging=false;
-            else if(down&&!mouseDown){RECT client{};GetClientRect(window,&client);
-                const float lx=client.right>0?point.x*1024.f/client.right:0,ly=client.bottom>0?point.y*768.f/client.bottom:0;
-                if(!page.Contains(lx,ly))dragging=PlaceAt(point.x,point.y);
-            }
-            else if(down&&dragging)PlaceAt(point.x,point.y);
-            if(!down)dragging=false;mouseDown=down;
-        }else{dragging=false;mouseDown=false;}
-    }
     const bool busy=saveQueued||(pendingUid&&pendingCommand!=layerwire::get)||editor.State()==EditState::uncertain;
     if(editing){
         if(footer.factory!=factory){
@@ -539,16 +513,6 @@ SURFACE_CONTEXT_SITE(BattleStyleSite,CaptureBattleStyle,battleStyleOriginal)
 // Native CUIMulti3DRender has already latched its mouse buttons here, before
 // updating the model transform under its native lock. Reuse that operation,
 // including pitch, instead of writing model transforms.
-void __stdcall PreviewInput(void* control){
-    LastErrorGuard error;
-    try{std::lock_guard<std::recursive_mutex> hold(gate);
-        if(!editing||!inputHeld||control!=preview)return;
-        if(pointerOwned){Put<std::uint8_t>(control,0x261,0);Put<std::uint8_t>(control,0x262,0);return;}
-        const bool right=Read<std::uint8_t>(control,0x261)!=0;
-        const bool left=Read<std::uint8_t>(control,0x262)!=0;
-        Put<std::uint8_t>(control,0x262,(right||(!placing&&left))?1:0);
-    }catch(...){ }
-}
 __declspec(naked) void PreviewInputSite(){
     __asm { pushfd } __asm { pushad } __asm { mov eax,esp }
     __asm { sub esp,210h } __asm { and esp,0FFFFFFF0h }

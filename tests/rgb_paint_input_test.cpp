@@ -25,7 +25,7 @@ int main(){
     std::array<unsigned char,0x300> pageBytes{},rootBytes{},inventory{};
     page=pageBytes.data();root=rootBytes.data();pageTable=page;inventoryTable=inventory.data();
     Put<void*>(page,0,pageTable);Put<void*>(page,0xd0,root);Put<std::uint8_t>(page,0xac,1);Put<std::uint8_t>(root,0x162,1);Put<void*>(inventory.data(),0,inventoryTable);
-    Snapshot snapshot;snapshot.identity={1,42};assert(panel.Open(snapshot));active=lastEditing=authorityReady=true;
+    Snapshot snapshot;snapshot.identity={1,42};assert(panel.Open(snapshot,true));active=lastEditing=authorityReady=true;
     originalInventoryUpdate=reinterpret_cast<Simple>(&fixture::Update);originalInventoryPick=reinterpret_cast<Simple>(&fixture::Pick);originalInventoryEvent=&fixture::Event;
     auto native=[&](bool blocked){const auto u=fixture::updates,p=fixture::picks,e=fixture::events;
         InventoryUpdateHook(inventory.data(),nullptr);InventoryPickHook(inventory.data(),nullptr);
@@ -33,6 +33,16 @@ int main(){
         assert(fixture::updates==u+!blocked&&fixture::picks==p+!blocked&&fixture::events==e+!blocked);
     };
     auto send=[&](UINT msg,int x,int y,WPARAM wp=0){return SendMessageW(window,msg,wp,MAKELPARAM(x,y));};
+    // Native loading remains authoritative until the player enters RGB.
+    std::array<unsigned char,0x180> control{},footer{};
+    hidden.push_back({control.data(),0,0});saveButton=footer.data();
+    Put<std::uint8_t>(control.data(),0x162,1);Put<std::uint8_t>(control.data(),0x167,1);
+    Put<std::uint8_t>(footer.data(),0x162,1);Put<std::uint8_t>(footer.data(),0x167,1);
+    NativeVisibility(true);assert(Read<std::uint8_t>(control.data(),0x167)==1);
+    NativeVisibility(false);assert(!Read<std::uint8_t>(control.data(),0x162));
+    NativeVisibility(true);assert(Read<std::uint8_t>(control.data(),0x167)==1&&Read<std::uint8_t>(footer.data(),0x167)==1);
+    Put<std::uint8_t>(control.data(),0x167,0);NativeVisibility(true);assert(!Read<std::uint8_t>(control.data(),0x167));
+    hidden.clear();saveButton=nullptr;
     native(true); // Hidden inventory polling, direct picking and item drag events.
     send(WM_LBUTTONDOWN,970,410);assert(pointerButtons==1&&panel.focus==0&&!panel.Dragging());
     auto before=fixture::forwarded;send(WM_MOUSEMOVE,500,700);send(WM_LBUTTONUP,500,700);

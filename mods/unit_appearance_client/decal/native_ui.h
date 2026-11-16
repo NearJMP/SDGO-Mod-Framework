@@ -33,8 +33,9 @@ public:
     bool Contains(float x,float y) const;
     Command PointerDown(float x,float y);
     Command PointerMove(float x,float y);
-    void PointerUp(){gesture_.Cancel();}
-    bool Captured()const{return gesture_.Captured();}
+    Command PointerRelease(float x,float y);
+    void PointerUp(){gesture_.Cancel();pointerActive_=false;pressedButton_=nullptr;pressedCommand_={};}
+    bool Captured()const{return pointerActive_||gesture_.Captured();}
     void SetThumbnailSource(Thumbnail source){thumbnail_=source;}
     const LayerLayout& Geometry()const{return layout_;}
     void* Owner() const {return service_;}
@@ -49,6 +50,8 @@ private:
     bool editing_=false;
     bool placing_=false,busy_=false,armed_=false,dirty_=false;unsigned selected_=0;
     layers::Design appearance_{};bool hasAppearance_=false;
+    bool pointerActive_=false;void* pressedButton_=nullptr;Command pressedCommand_;
+    void* ButtonAt(float,float)const;Command ButtonCommand(void*)const;
     LayerLayout layout_;LayerGesture gesture_;float hoverX_=-1,hoverY_=-1;
     Tab tab_=Tab::layers;unsigned offset_=0,stockOffset_=0;std::uint64_t scrollAt_=0;
     std::vector<layers::Stock> stock_;layers::Policy policy_;

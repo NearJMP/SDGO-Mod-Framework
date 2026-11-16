@@ -627,12 +627,17 @@ ReadResult GeometryReader::Read(void* model,std::vector<Node>& output) const {
         void* vertexData=nullptr;void* indexData=nullptr;void* groupData=nullptr;
         if(!ReadAt(common,0xa4,vertices)||!ReadAt(common,0xa8,faces)||!ReadAt(common,0x70,kind))return ReadResult::malformed;
         if(!vertices||!faces)continue;
+        // Native collision/helper meshes may have kind 1 and real vertices,
+        // but no material draw groups. They are not rendered paint surfaces
+        // and must not reject the visible kind-2 nodes in the same model.
+        if(!ReadAt(common,0x194,groupCount))return ReadResult::malformed;
+        if(!groupCount)continue;
         if(kind!=2)return ReadResult::unavailable;
         if(vertices>65536 || faces>262144 || totalVertices+vertices>262144 || totalTriangles+faces>262144)
             return ReadResult::budgetExceeded;
         if(!ReadAt(common,0x34,vertexData)||!ReadAt(common,0x38,vertexCapacity)||
            !ReadAt(common,0x58,indexData)||!ReadAt(common,0x5c,indexCapacity)||
-           !ReadAt(common,0x194,groupCount)||!ReadAt(common,0x198,groupData)||
+           !ReadAt(common,0x198,groupData)||
            vertexCapacity<vertices||indexCapacity<faces*3||!groupCount||groupCount>4096)return ReadResult::malformed;
         std::vector<NativeVertex> nativeVertices(vertices);
         std::vector<std::uint16_t> indices(faces*3);
