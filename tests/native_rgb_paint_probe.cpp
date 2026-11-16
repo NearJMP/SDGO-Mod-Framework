@@ -9,6 +9,7 @@
 #include "sdgo/game_test.h"
 #include "sdgo/login_showcase_api.h"
 #include "sdgo/rgb_paint_observer.h"
+#include "../mods/hangar_manager/native_ui.h"
 
 namespace {
 using Style = void(__cdecl*)(void*, const std::uint16_t*, std::uint16_t, const std::uint32_t*);
