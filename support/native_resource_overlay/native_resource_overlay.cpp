@@ -401,6 +401,12 @@ namespace
                 if (value >= L'A' && value <= L'Z')
                     value = static_cast<wchar_t>(value + (L'a' - L'A'));
             }
+            const bool stickerPath = normalized.rfind(L"sprs\\sdgo_stickers_",0)==0 ||
+                                     normalized.rfind(L"txrs\\sdgo_stickers_",0)==0;
+            if (stickerPath && bundle.owner != "sticker_catalog") {
+                error = "reserved sticker resources require sticker_catalog ownership";
+                return false;
+            }
             if (normalized != L"sdgo\\optex" &&
                 normalized.rfind(L"sdgo\\optex\\", 0) != 0)
                 continue;
@@ -425,6 +431,18 @@ namespace
     bool UnitResourcePathCheck(const std::wstring& path, uint32_t)
     {
         return UnitResourcePath(path);
+    }
+
+    bool StickerResourcePathCheck(const std::wstring& path, uint32_t)
+    {
+        const bool sprite=path.rfind(L"sprs\\sdgo_stickers_",0)==0;
+        const bool texture=path.rfind(L"txrs\\sdgo_stickers_",0)==0;
+        if(!sprite&&!texture)return false;
+        const std::wstring prefix=sprite?L"sprs\\sdgo_stickers_":L"txrs\\sdgo_stickers_";
+        const std::wstring suffix=sprite?L".spr":L".txr";
+        if(path.size()<=prefix.size()+suffix.size()||path.substr(path.size()-suffix.size())!=suffix)return false;
+        const auto digits=path.substr(prefix.size(),path.size()-prefix.size()-suffix.size());
+        return digits.size()<=7&&digits[0]!=L'0'&&std::all_of(digits.begin(),digits.end(),[](wchar_t c){return c>=L'0'&&c<=L'9';});
     }
 
     // Imported maps: terrain and navigation plus the resource domains their
@@ -868,6 +886,9 @@ namespace sdgo::resource_overlay
         if (std::strcmp(owner, "unit_catalog") == 0)
             return LoadSealedBundle(modDirectory, configName, "unit_catalog",
                                     &UnitResourcePathCheck, bundle, error);
+        if (std::strcmp(owner, "sticker_catalog") == 0)
+            return LoadSealedBundle(modDirectory, configName, "sticker_catalog",
+                                    &StickerResourcePathCheck, bundle, error);
         if (std::strcmp(owner, "unit_catalog_presets") == 0)
             return LoadSealedBundle(modDirectory, configName, "unit_catalog_presets",
                                     &UnitResourcePathCheck, bundle, error);

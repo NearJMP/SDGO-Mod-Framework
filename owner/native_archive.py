@@ -6,6 +6,7 @@ import hashlib
 from pathlib import Path
 import re
 import struct
+import zlib
 from typing import Callable
 
 
@@ -165,6 +166,34 @@ def read_archive(index: bytes, archive_path, parts: int = 1, part_chunks: int = 
     """Read every entry of an existing overlay (index bytes + archive file or parts) back to raw bytes."""
     with OverlayReader(index, archive_path, parts, part_chunks) as reader:
         return {path: reader.read(path) for path in reader.names()}
+
+
+def read_archive_bytes(index: bytes, archive: bytes, allowed: Callable[[str], bool], *,
+                       max_archive_bytes: int, max_resource_bytes: int,
+                       max_total_bytes: int) -> dict[str, bytes]:
+    """Validate a bounded sealed publication before writing it to a target.
+
+    A capped gzip decoder enforces the advertised length during decompression,
+    rather than after allocating an unbounded result.
+    """
+    if not isinstance(index,bytes) or not isinstance(archive,bytes) or len(archive)>max_archive_bytes:
+        raise ValueError('Native in-memory archive exceeds its byte budget')
+    count,entries=_parse_index(index)
+    if len(archive)!=count*(CHUNK_SIZE+8):raise ValueError('Native archive length differs from its index')
+    output={};total=0
+    for path,(zsize,start,chunks) in entries.items():
+        if not allowed(path):raise ValueError('Native resource is outside the provider domain: '+path)
+        packed=b''.join(archive[(start+i)*(CHUNK_SIZE+8)+8:(start+i+1)*(CHUNK_SIZE+8)]for i in range(chunks))[:zsize]
+        if len(packed)<12 or packed[:8]!=b'ZOAGZIP1':raise ValueError('Native overlay encoding is unsupported: '+path)
+        size=struct.unpack_from('<I',packed,8)[0]
+        if size>max_resource_bytes or total+size>max_total_bytes:raise ValueError('Native resource exceeds its decoded byte budget')
+        decoder=zlib.decompressobj(16+zlib.MAX_WBITS)
+        try:raw=decoder.decompress(packed[12:],size+1)
+        except zlib.error as error:raise ValueError('Native overlay compressed data is invalid: '+path)from error
+        if len(raw)!=size or not decoder.eof or decoder.unconsumed_tail or decoder.unused_data:
+            raise ValueError('Native resource length or gzip framing differs: '+path)
+        total+=size;output[path]=raw
+    return output
 
 
 def build_archive_file(resources, allowed: Callable[[str], bool], archive_path, part_chunks: int = 0) -> tuple[bytes, dict]:

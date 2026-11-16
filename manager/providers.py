@@ -355,8 +355,9 @@ def attach(workspace):
     from .ai_dialogue import AiDialogue
     from .maps import Maps
     from .newcomer_protection import NewcomerProtection
+    from .engines.stickers import Stickers
     for cls in (Rewards, Operators, Capsules, Shop, Frp, AiCatalog, MissionBehavior,
                 CollectionCapsule, Hangar, Units, CalendarGifts, Announcements,
-                LoginShowcase, AiDialogue, Maps, NewcomerProtection):
+                LoginShowcase, AiDialogue, Maps, NewcomerProtection, Stickers):
         provider = cls(workspace)
         workspace.providers[provider.id] = provider

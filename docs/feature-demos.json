@@ -301,6 +301,19 @@
       "title_en": "RGB paint: native entry, adjustment and return",
       "guide_zh": "docs/unit-appearance.zh-CN.md",
       "guide_en": "docs/unit-appearance.md"
+    },
+    {
+      "id": "sticker-import",
+      "path": "docs/sticker-import-demo.webp",
+      "since": "1.16.47",
+      "mods": [
+        "sticker_catalog",
+        "sticker_localization"
+      ],
+      "title_zh": "原生纹章库、放置预览、确认保存与重新进入",
+      "title_en": "Native sticker library, placement, server-confirmed save and reload",
+      "guide_zh": "docs/sticker-import.zh-CN.md",
+      "guide_en": "docs/sticker-import.md"
     }
   ]
 }

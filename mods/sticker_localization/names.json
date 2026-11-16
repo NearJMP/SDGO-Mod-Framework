@@ -1,0 +1,1506 @@
+{
+  "schema_version": 1,
+  "baseline": {
+    "index_sha256": "6223299c38c3c314ae5bc867db9490a7e8c3b033b16e8c19be98d49e9220cfbb",
+    "gdt_sha256": "6b3a570f4484148d5c9e9b6bcac118d19c41f2369dac785d292db483e9e3e584",
+    "record_size": 409,
+    "total_count": 414,
+    "english_rule": "ASCII string containing A-Z or a-z, excluding exact incomplete source \" Sticker\"",
+    "english_count": 286,
+    "non_ascii_count": 127,
+    "reviewed_non_ascii_count": 12,
+    "excluded_incomplete_ascii_count": 1
+  },
+  "entries": [
+    {
+      "id": 240002,
+      "source": "테스트_스티커2",
+      "target": "测试贴纸2"
+    },
+    {
+      "id": 240003,
+      "source": "테스트_스티커3",
+      "target": "测试贴纸3"
+    },
+    {
+      "id": 240005,
+      "source": "Triangle Sticker",
+      "target": "三角形贴纸"
+    },
+    {
+      "id": 240006,
+      "source": "Target Sticker",
+      "target": "标靶贴纸"
+    },
+    {
+      "id": 240007,
+      "source": "Rocket Sticker",
+      "target": "火箭贴纸"
+    },
+    {
+      "id": 240008,
+      "source": "Effect1 Sticker",
+      "target": "特效 1 贴纸"
+    },
+    {
+      "id": 240010,
+      "source": "Spider Web Sticker",
+      "target": "蜘蛛网贴纸"
+    },
+    {
+      "id": 240011,
+      "source": "Flash Sticker",
+      "target": "闪光贴纸"
+    },
+    {
+      "id": 240012,
+      "source": "Dragon Sticker",
+      "target": "龙贴纸"
+    },
+    {
+      "id": 240013,
+      "source": "Lion Arms Sticker",
+      "target": "狮子纹章贴纸"
+    },
+    {
+      "id": 240014,
+      "source": "Fist Arms Sticker",
+      "target": "拳头纹章贴纸"
+    },
+    {
+      "id": 240015,
+      "source": "E.F.S.F.1 Sticker",
+      "target": "地球联邦军 1 贴纸"
+    },
+    {
+      "id": 240016,
+      "source": "PRINCIPALITY OF ZEON Sticker",
+      "target": "吉翁公国贴纸"
+    },
+    {
+      "id": 240017,
+      "source": "NEO ZEON1 Sticker",
+      "target": "新吉翁 1 贴纸"
+    },
+    {
+      "id": 240018,
+      "source": "A.E.U.G.",
+      "target": "奥古贴纸"
+    },
+    {
+      "id": 240019,
+      "source": "ORB",
+      "target": "奥布贴纸"
+    },
+    {
+      "id": 240020,
+      "source": "Sticker Eraser",
+      "target": "贴纸清除剂"
+    },
+    {
+      "id": 240021,
+      "source": "00 Sticker",
+      "target": "00 贴纸"
+    },
+    {
+      "id": 240022,
+      "source": "01 Sticker",
+      "target": "01 贴纸"
+    },
+    {
+      "id": 240023,
+      "source": "02 Sticker",
+      "target": "02 贴纸"
+    },
+    {
+      "id": 240024,
+      "source": "03 Sticker",
+      "target": "03 贴纸"
+    },
+    {
+      "id": 240025,
+      "source": "04 Sticker",
+      "target": "04 贴纸"
+    },
+    {
+      "id": 240026,
+      "source": "05 Sticker",
+      "target": "05 贴纸"
+    },
+    {
+      "id": 240027,
+      "source": "06 Sticker",
+      "target": "06 贴纸"
+    },
+    {
+      "id": 240028,
+      "source": "07 Sticker",
+      "target": "07 贴纸"
+    },
+    {
+      "id": 240029,
+      "source": "08 Sticker",
+      "target": "08 贴纸"
+    },
+    {
+      "id": 240030,
+      "source": "09 Sticker",
+      "target": "09 贴纸"
+    },
+    {
+      "id": 240032,
+      "source": "OTL1 Sticker",
+      "target": "失意表情 1 贴纸"
+    },
+    {
+      "id": 240033,
+      "source": "OTL2 Sticker",
+      "target": "失意表情 2 贴纸"
+    },
+    {
+      "id": 240034,
+      "source": "Smile Sticker",
+      "target": "笑脸贴纸"
+    },
+    {
+      "id": 240035,
+      "source": "Scream Parady Sticker",
+      "target": "《呐喊》戏仿贴纸"
+    },
+    {
+      "id": 240036,
+      "source": "Knight Arms Sticker",
+      "target": "骑士纹章贴纸"
+    },
+    {
+      "id": 240038,
+      "source": "Wolf Sticker",
+      "target": "狼贴纸"
+    },
+    {
+      "id": 240039,
+      "source": "Rabbit Sticker",
+      "target": "兔子贴纸"
+    },
+    {
+      "id": 240040,
+      "source": "Griffin Sticker",
+      "target": "狮鹫贴纸"
+    },
+    {
+      "id": 240041,
+      "source": "Helm Sticker",
+      "target": "头盔贴纸"
+    },
+    {
+      "id": 240042,
+      "source": "Phantom Sticker",
+      "target": "幻影贴纸"
+    },
+    {
+      "id": 240043,
+      "source": "Castle Sticker",
+      "target": "城堡贴纸"
+    },
+    {
+      "id": 240044,
+      "source": "Z.A.F.T. Sticker",
+      "target": "扎夫特贴纸"
+    },
+    {
+      "id": 240045,
+      "source": "TITANS Sticker",
+      "target": "提坦斯贴纸"
+    },
+    {
+      "id": 240046,
+      "source": "Event)KnightArms Sticker",
+      "target": "（活动）骑士纹章贴纸"
+    },
+    {
+      "id": 240047,
+      "source": "Event)Smile Sticker",
+      "target": "（活动）笑脸贴纸"
+    },
+    {
+      "id": 240048,
+      "source": "Star1 Sticker",
+      "target": "星星 1 贴纸"
+    },
+    {
+      "id": 240049,
+      "source": "Star2 Sticker",
+      "target": "星星 2 贴纸"
+    },
+    {
+      "id": 240050,
+      "source": "Scorpion1 Sticker",
+      "target": "蝎子 1 贴纸"
+    },
+    {
+      "id": 240051,
+      "source": "Scorpion2 Sticker",
+      "target": "蝎子 2 贴纸"
+    },
+    {
+      "id": 240052,
+      "source": "Unicorn Sticker",
+      "target": "独角兽贴纸"
+    },
+    {
+      "id": 240054,
+      "source": "Lily1 Sticker",
+      "target": "百合 1 贴纸"
+    },
+    {
+      "id": 240055,
+      "source": "Smile2 Sticker",
+      "target": "笑脸 2 贴纸"
+    },
+    {
+      "id": 240057,
+      "source": "Rose1 Sticker",
+      "target": "玫瑰 1 贴纸"
+    },
+    {
+      "id": 240058,
+      "source": "Rose2 Sticker",
+      "target": "玫瑰 2 贴纸"
+    },
+    {
+      "id": 240059,
+      "source": "00'(White) Sticker",
+      "target": "00'（白色）贴纸"
+    },
+    {
+      "id": 240060,
+      "source": "01'(White) Sticker",
+      "target": "01'（白色）贴纸"
+    },
+    {
+      "id": 240061,
+      "source": "02'(White) Sticker",
+      "target": "02'（白色）贴纸"
+    },
+    {
+      "id": 240062,
+      "source": "03'(White) Sticker",
+      "target": "03'（白色）贴纸"
+    },
+    {
+      "id": 240063,
+      "source": "04'(White) Sticker",
+      "target": "04'（白色）贴纸"
+    },
+    {
+      "id": 240064,
+      "source": "05'(White) Sticker",
+      "target": "05'（白色）贴纸"
+    },
+    {
+      "id": 240065,
+      "source": "06'(White) Sticker",
+      "target": "06'（白色）贴纸"
+    },
+    {
+      "id": 240066,
+      "source": "07'(White) Sticker",
+      "target": "07'（白色）贴纸"
+    },
+    {
+      "id": 240067,
+      "source": "08'(White) Sticker",
+      "target": "08'（白色）贴纸"
+    },
+    {
+      "id": 240068,
+      "source": "09'(White) Sticker",
+      "target": "09'（白色）贴纸"
+    },
+    {
+      "id": 240071,
+      "source": "Rabbit2 Sticker",
+      "target": "兔子 2 贴纸"
+    },
+    {
+      "id": 240072,
+      "source": "Eagle1 Sticker",
+      "target": "鹰 1 贴纸"
+    },
+    {
+      "id": 240073,
+      "source": "OTL2 Sticker",
+      "target": "失意表情 2 贴纸"
+    },
+    {
+      "id": 240074,
+      "source": "Hawk1 Sticker",
+      "target": "隼 1 贴纸"
+    },
+    {
+      "id": 240075,
+      "source": "Knight1 Sticker",
+      "target": "骑士 1 贴纸"
+    },
+    {
+      "id": 240076,
+      "source": "Unicorn2 Sticker",
+      "target": "独角兽 2 贴纸"
+    },
+    {
+      "id": 240077,
+      "source": "Insect1 Sticker",
+      "target": "昆虫 1 贴纸"
+    },
+    {
+      "id": 240078,
+      "source": "3-Legged Crow sticker No.1",
+      "target": "三足乌 1 号贴纸"
+    },
+    {
+      "id": 240079,
+      "source": "Butterfly1 Sticker",
+      "target": "蝴蝶 1 贴纸"
+    },
+    {
+      "id": 240080,
+      "source": "Flower1 Sticker",
+      "target": "花朵 1 贴纸"
+    },
+    {
+      "id": 240081,
+      "source": "Star1 Sticker",
+      "target": "星星 1 贴纸"
+    },
+    {
+      "id": 240082,
+      "source": "Star2 Sticker",
+      "target": "星星 2 贴纸"
+    },
+    {
+      "id": 240083,
+      "source": "Scorpion1 Sticker",
+      "target": "蝎子 1 贴纸"
+    },
+    {
+      "id": 240084,
+      "source": "Scorpion2 Sticker",
+      "target": "蝎子 2 贴纸"
+    },
+    {
+      "id": 240086,
+      "source": "Smile2 Sticker",
+      "target": "笑脸 2 贴纸"
+    },
+    {
+      "id": 240088,
+      "source": "Rose1 Sticker",
+      "target": "玫瑰 1 贴纸"
+    },
+    {
+      "id": 240089,
+      "source": "Rose2 Sticker",
+      "target": "玫瑰 2 贴纸"
+    },
+    {
+      "id": 240090,
+      "source": "00'(White) Sticker",
+      "target": "00'（白色）贴纸"
+    },
+    {
+      "id": 240091,
+      "source": "01'(White) Sticker",
+      "target": "01'（白色）贴纸"
+    },
+    {
+      "id": 240092,
+      "source": "02'(White) Sticker",
+      "target": "02'（白色）贴纸"
+    },
+    {
+      "id": 240093,
+      "source": "03'(White) Sticker",
+      "target": "03'（白色）贴纸"
+    },
+    {
+      "id": 240094,
+      "source": "04'(White) Sticker",
+      "target": "04'（白色）贴纸"
+    },
+    {
+      "id": 240095,
+      "source": "05'(White) Sticker",
+      "target": "05'（白色）贴纸"
+    },
+    {
+      "id": 240096,
+      "source": "06'(White) Sticker",
+      "target": "06'（白色）贴纸"
+    },
+    {
+      "id": 240097,
+      "source": "07'(White) Sticker",
+      "target": "07'（白色）贴纸"
+    },
+    {
+      "id": 240098,
+      "source": "08'(White) Sticker",
+      "target": "08'（白色）贴纸"
+    },
+    {
+      "id": 240099,
+      "source": "09'(White) Sticker",
+      "target": "09'（白色）贴纸"
+    },
+    {
+      "id": 240102,
+      "source": "Rabbit2 Sticker",
+      "target": "兔子 2 贴纸"
+    },
+    {
+      "id": 240103,
+      "source": "Eagle1 Sticker",
+      "target": "鹰 1 贴纸"
+    },
+    {
+      "id": 240104,
+      "source": "OTL2 Sticker",
+      "target": "失意表情 2 贴纸"
+    },
+    {
+      "id": 240105,
+      "source": "Knight1 Sticker",
+      "target": "骑士 1 贴纸"
+    },
+    {
+      "id": 240106,
+      "source": "Butterfly1 Sticker",
+      "target": "蝴蝶 1 贴纸"
+    },
+    {
+      "id": 240107,
+      "source": "Flower1 Sticker",
+      "target": "花朵 1 贴纸"
+    },
+    {
+      "id": 240108,
+      "source": "E.F.S.F. Sticker",
+      "target": "地球联邦军贴纸"
+    },
+    {
+      "id": 240109,
+      "source": "PRINCIPALITY OF ZEON Sticker",
+      "target": "吉翁公国贴纸"
+    },
+    {
+      "id": 240110,
+      "source": "A.E.U.G. Sticker",
+      "target": "奥古贴纸"
+    },
+    {
+      "id": 240111,
+      "source": "TITANS Sticker",
+      "target": "提坦斯贴纸"
+    },
+    {
+      "id": 240112,
+      "source": "NEO ZEON Sticker",
+      "target": "新吉翁贴纸"
+    },
+    {
+      "id": 240113,
+      "source": "Z.A.F.T. Sticker",
+      "target": "扎夫特贴纸"
+    },
+    {
+      "id": 240114,
+      "source": "ORB Sticker",
+      "target": "奥布贴纸"
+    },
+    {
+      "id": 240115,
+      "source": "Symbol1",
+      "target": "符号 1 贴纸"
+    },
+    {
+      "id": 240118,
+      "source": "00'(Black) Sticker",
+      "target": "00'（黑色）贴纸"
+    },
+    {
+      "id": 240119,
+      "source": "01'(Black) Sticker",
+      "target": "01'（黑色）贴纸"
+    },
+    {
+      "id": 240120,
+      "source": "02'(Black) Sticker",
+      "target": "02'（黑色）贴纸"
+    },
+    {
+      "id": 240121,
+      "source": "03'(Black) Sticker",
+      "target": "03'（黑色）贴纸"
+    },
+    {
+      "id": 240122,
+      "source": "04'(Black) Sticker",
+      "target": "04'（黑色）贴纸"
+    },
+    {
+      "id": 240123,
+      "source": "05'(Black) Sticker",
+      "target": "05'（黑色）贴纸"
+    },
+    {
+      "id": 240124,
+      "source": "06'(Black) Sticker",
+      "target": "06'（黑色）贴纸"
+    },
+    {
+      "id": 240125,
+      "source": "07'(Black) Sticker",
+      "target": "07'（黑色）贴纸"
+    },
+    {
+      "id": 240126,
+      "source": "08'(Black) Sticker",
+      "target": "08'（黑色）贴纸"
+    },
+    {
+      "id": 240127,
+      "source": "09'(Black) Sticker",
+      "target": "09'（黑色）贴纸"
+    },
+    {
+      "id": 240129,
+      "source": "Dragon Arms Sticker",
+      "target": "龙纹章贴纸"
+    },
+    {
+      "id": 240130,
+      "source": "Lion Arms Sticker",
+      "target": "狮子纹章贴纸"
+    },
+    {
+      "id": 240131,
+      "source": "Fist Arms Sticker",
+      "target": "拳头纹章贴纸"
+    },
+    {
+      "id": 240132,
+      "source": "Spider Web Sticker",
+      "target": "蜘蛛网贴纸"
+    },
+    {
+      "id": 240133,
+      "source": "01'(Black) Sticker",
+      "target": "01'（黑色）贴纸"
+    },
+    {
+      "id": 240134,
+      "source": "02'(Black) Sticker",
+      "target": "02'（黑色）贴纸"
+    },
+    {
+      "id": 240135,
+      "source": "03'(Black) Sticker",
+      "target": "03'（黑色）贴纸"
+    },
+    {
+      "id": 240136,
+      "source": "04'(Black) Sticker",
+      "target": "04'（黑色）贴纸"
+    },
+    {
+      "id": 240137,
+      "source": "05'(Black) Sticker",
+      "target": "05'（黑色）贴纸"
+    },
+    {
+      "id": 240138,
+      "source": "06'(Black) Sticker",
+      "target": "06'（黑色）贴纸"
+    },
+    {
+      "id": 240139,
+      "source": "07'(Black) Sticker",
+      "target": "07'（黑色）贴纸"
+    },
+    {
+      "id": 240140,
+      "source": "08'(Black) Sticker",
+      "target": "08'（黑色）贴纸"
+    },
+    {
+      "id": 240141,
+      "source": "09'(Black) Sticker",
+      "target": "09'（黑色）贴纸"
+    },
+    {
+      "id": 240143,
+      "source": "Spider Web Sticker",
+      "target": "蜘蛛网贴纸"
+    },
+    {
+      "id": 240144,
+      "source": "Operator1 Sticker",
+      "target": "副官 1 贴纸"
+    },
+    {
+      "id": 240145,
+      "source": "Operator2 Sticker",
+      "target": "副官 2 贴纸"
+    },
+    {
+      "id": 240146,
+      "source": "Operator3 Sticker",
+      "target": "副官 3 贴纸"
+    },
+    {
+      "id": 240147,
+      "source": "Operator F Sticker",
+      "target": "F 型副官贴纸"
+    },
+    {
+      "id": 240148,
+      "source": "Phantom Sticker",
+      "target": "幻影贴纸"
+    },
+    {
+      "id": 240150,
+      "source": "Griffin Sticker",
+      "target": "狮鹫贴纸"
+    },
+    {
+      "id": 240151,
+      "source": "Bull Sticker",
+      "target": "公牛贴纸"
+    },
+    {
+      "id": 240152,
+      "source": "Symbol2 Sticker",
+      "target": "符号 2 贴纸"
+    },
+    {
+      "id": 240153,
+      "source": "Flash Sticker",
+      "target": "闪光贴纸"
+    },
+    {
+      "id": 240154,
+      "source": "Rabbit1 Sticker",
+      "target": "兔子 1 贴纸"
+    },
+    {
+      "id": 240155,
+      "source": "Helm Sticker",
+      "target": "头盔贴纸"
+    },
+    {
+      "id": 240156,
+      "source": "Castle Sticker",
+      "target": "城堡贴纸"
+    },
+    {
+      "id": 240157,
+      "source": "Wolf Sticker",
+      "target": "狼贴纸"
+    },
+    {
+      "id": 240158,
+      "source": "Knight Arms Sticker",
+      "target": "骑士纹章贴纸"
+    },
+    {
+      "id": 240159,
+      "source": "Gato Sticker",
+      "target": "卡多贴纸"
+    },
+    {
+      "id": 240160,
+      "source": "Cagalli Sticker",
+      "target": "卡嘉莉贴纸"
+    },
+    {
+      "id": 240161,
+      "source": "Hyaku Shiki Sticker",
+      "target": "百式贴纸"
+    },
+    {
+      "id": 240162,
+      "source": "Black tristar Sticker",
+      "target": "黑色三连星贴纸"
+    },
+    {
+      "id": 240163,
+      "source": "PhantomArms Sticker",
+      "target": "幻影纹章贴纸"
+    },
+    {
+      "id": 240164,
+      "source": "Ramba Ral Sticker",
+      "target": "兰巴·拉尔贴纸"
+    },
+    {
+      "id": 240165,
+      "source": "Roux Louka Sticker",
+      "target": "露·露卡贴纸"
+    },
+    {
+      "id": 240166,
+      "source": "Yazan Sticker",
+      "target": "亚赞贴纸"
+    },
+    {
+      "id": 240167,
+      "source": "Target Sticker",
+      "target": "标靶贴纸"
+    },
+    {
+      "id": 240168,
+      "source": "MissileArms Sticker",
+      "target": "导弹纹章贴纸"
+    },
+    {
+      "id": 240170,
+      "source": "White Base Sticker",
+      "target": "白色基地贴纸"
+    },
+    {
+      "id": 240171,
+      "source": "Kacricon Sticker",
+      "target": "卡克里康贴纸"
+    },
+    {
+      "id": 240172,
+      "source": "Triangular Mark 1 Sticker",
+      "target": "三角标记 1 贴纸"
+    },
+    {
+      "id": 240173,
+      "source": "Triangular Mark 2 Sticker",
+      "target": "三角标记 2 贴纸"
+    },
+    {
+      "id": 240174,
+      "source": "Z.A.F.T. Sticker",
+      "target": "扎夫特贴纸"
+    },
+    {
+      "id": 240175,
+      "source": "Kou Sticker",
+      "target": "浦木宏贴纸"
+    },
+    {
+      "id": 240176,
+      "source": "Bernard Sticker",
+      "target": "巴尼贴纸"
+    },
+    {
+      "id": 240177,
+      "source": "Albion Sticker",
+      "target": "阿尔比昂贴纸"
+    },
+    {
+      "id": 240178,
+      "source": "Jerid Sticker",
+      "target": "杰利特贴纸"
+    },
+    {
+      "id": 240179,
+      "source": "EFSF Sticker",
+      "target": "地球联邦军贴纸"
+    },
+    {
+      "id": 240180,
+      "source": "WB Sticker",
+      "target": "白色基地贴纸"
+    },
+    {
+      "id": 240181,
+      "source": "Milliardo Sticker",
+      "target": "米利亚尔特贴纸"
+    },
+    {
+      "id": 240182,
+      "source": "Glemy Toto Sticker",
+      "target": "格雷米·托托贴纸"
+    },
+    {
+      "id": 240183,
+      "source": "SIEG Sticker",
+      "target": "SIEG 贴纸"
+    },
+    {
+      "id": 240184,
+      "source": "ZEON Sticker",
+      "target": "吉翁贴纸"
+    },
+    {
+      "id": 240188,
+      "source": "HARO(Sky Blue) Sticker",
+      "target": "哈罗（天蓝色）贴纸"
+    },
+    {
+      "id": 240190,
+      "source": "ORB Sticker",
+      "target": "奥布贴纸"
+    },
+    {
+      "id": 240191,
+      "source": "X MAS Sticker",
+      "target": "圣诞节贴纸"
+    },
+    {
+      "id": 240192,
+      "source": "New Years Lucky  Sticker",
+      "target": "新年福字贴纸"
+    },
+    {
+      "id": 240193,
+      "source": "Affection Sticker",
+      "target": "情字贴纸"
+    },
+    {
+      "id": 240194,
+      "source": "E.F.S.F.2 Sticker",
+      "target": "地球联邦军 2 贴纸"
+    },
+    {
+      "id": 240195,
+      "source": "Char Sticker",
+      "target": "夏亚贴纸"
+    },
+    {
+      "id": 240196,
+      "source": "New NEO ZEON Sticker",
+      "target": "新吉翁（U.C.0093）贴纸"
+    },
+    {
+      "id": 240198,
+      "source": "E.F.S.F.3 Sticker",
+      "target": "地球联邦军 3 贴纸"
+    },
+    {
+      "id": 240199,
+      "source": "New Type Sticker",
+      "target": "新人类贴纸"
+    },
+    {
+      "id": 240200,
+      "source": "Amuro Sticker",
+      "target": "阿姆罗贴纸"
+    },
+    {
+      "id": 240203,
+      "source": "Z.A.F.T.2 Sticker",
+      "target": "扎夫特 2 贴纸"
+    },
+    {
+      "id": 240204,
+      "source": "FAITH Sticker",
+      "target": "FAITH 徽章贴纸"
+    },
+    {
+      "id": 240205,
+      "source": "BB Senshi Chousa Sticker",
+      "target": "BB 战士 Chousa 贴纸"
+    },
+    {
+      "id": 240206,
+      "source": "Sousou Army Sticker",
+      "target": "曹操军贴纸"
+    },
+    {
+      "id": 240207,
+      "source": "Yuushuu Army Sticker",
+      "target": "Yuushuu Army 贴纸"
+    },
+    {
+      "id": 240212,
+      "source": "F(Red) Sticker",
+      "target": "F（红色）贴纸"
+    },
+    {
+      "id": 240213,
+      "source": "91(Red) Sticker",
+      "target": "91（红色）贴纸"
+    },
+    {
+      "id": 240214,
+      "source": "Troya Sticker",
+      "target": "Troya 贴纸"
+    },
+    {
+      "id": 240215,
+      "source": "Z.A.F.T.2(Gray) Sticker",
+      "target": "扎夫特 2（灰色）贴纸"
+    },
+    {
+      "id": 240216,
+      "source": "Pink Sakura Sticker",
+      "target": "粉色樱花贴纸"
+    },
+    {
+      "id": 240217,
+      "source": "White Sakura Sticker",
+      "target": "白色樱花贴纸"
+    },
+    {
+      "id": 240218,
+      "source": "New Type(White) Sticker",
+      "target": "新人类（白色）贴纸"
+    },
+    {
+      "id": 240219,
+      "source": "Amuro(White) Sticker",
+      "target": "阿姆罗（白色）贴纸"
+    },
+    {
+      "id": 240220,
+      "source": "Londo Bell Sticker",
+      "target": "隆德·贝尔贴纸"
+    },
+    {
+      "id": 240235,
+      "source": "Cyclops Team Sticker",
+      "target": "独眼巨人队贴纸"
+    },
+    {
+      "id": 240236,
+      "source": "HARO(Yellow) Sticker",
+      "target": "哈罗（黄色）贴纸"
+    },
+    {
+      "id": 240237,
+      "source": "King of Hearts Sticker",
+      "target": "红心之王贴纸"
+    },
+    {
+      "id": 240242,
+      "source": "Celestial Being Sticker",
+      "target": "天人贴纸"
+    },
+    {
+      "id": 240243,
+      "source": "Quattro Sticker",
+      "target": "克瓦特罗贴纸"
+    },
+    {
+      "id": 240244,
+      "source": "League Militaire Sticker",
+      "target": "神圣军事同盟贴纸"
+    },
+    {
+      "id": 240245,
+      "source": "Anaheim Sticker",
+      "target": "阿纳海姆电子贴纸"
+    },
+    {
+      "id": 240246,
+      "source": "1ST",
+      "target": "第一名贴纸"
+    },
+    {
+      "id": 240247,
+      "source": "2ST",
+      "target": "第二名贴纸"
+    },
+    {
+      "id": 240248,
+      "source": "3ST",
+      "target": "第三名贴纸"
+    },
+    {
+      "id": 240249,
+      "source": "League Militaire (Commander) Sticker",
+      "target": "神圣军事同盟（指挥官）贴纸"
+    },
+    {
+      "id": 240250,
+      "source": "Uso Ewin Sticker",
+      "target": "乌索·艾温贴纸"
+    },
+    {
+      "id": 240251,
+      "source": "AG Sticker",
+      "target": "AG 标志贴纸"
+    },
+    {
+      "id": 240252,
+      "source": "AEUG Sticker",
+      "target": "奥古贴纸"
+    },
+    {
+      "id": 240253,
+      "source": "F(Ver.2) Sticker",
+      "target": "F（第 2 版）贴纸"
+    },
+    {
+      "id": 240254,
+      "source": "91(Ver.2) Sticker",
+      "target": "91（第 2 版）贴纸"
+    },
+    {
+      "id": 240256,
+      "source": "Trowa Sticker",
+      "target": "特洛瓦贴纸"
+    },
+    {
+      "id": 240261,
+      "source": "Cat",
+      "target": "猫贴纸"
+    },
+    {
+      "id": 240262,
+      "source": "User1",
+      "target": "用户 1 贴纸"
+    },
+    {
+      "id": 240263,
+      "source": "User2",
+      "target": "用户 2 贴纸"
+    },
+    {
+      "id": 240264,
+      "source": "User3",
+      "target": "用户 3 贴纸"
+    },
+    {
+      "id": 240268,
+      "source": "User Love Sticker",
+      "target": "玩家之爱贴纸"
+    },
+    {
+      "id": 240269,
+      "source": "Tiger Year Sticker",
+      "target": "虎年贴纸"
+    },
+    {
+      "id": 240270,
+      "source": "UNION Sticker",
+      "target": "联合标志贴纸"
+    },
+    {
+      "id": 240271,
+      "source": "AEU Sticker",
+      "target": "AEU 标志贴纸"
+    },
+    {
+      "id": 240272,
+      "source": "Innovation lotus Stickers",
+      "target": "变革者莲花贴纸"
+    },
+    {
+      "id": 240273,
+      "source": "Lucky Tiger Year Sticker",
+      "target": "虎年吉祥贴纸"
+    },
+    {
+      "id": 240274,
+      "source": "ZZGundam Sticker",
+      "target": "ZZ 高达贴纸"
+    },
+    {
+      "id": 240275,
+      "source": "ZGundam Sticker",
+      "target": "Z 高达贴纸"
+    },
+    {
+      "id": 240276,
+      "source": "3 Anniversary Celebrating Sticker",
+      "target": "三周年纪念贴纸"
+    },
+    {
+      "id": 240277,
+      "source": "GX Sticker",
+      "target": "高达 X 贴纸"
+    },
+    {
+      "id": 240281,
+      "source": "Football Sticker",
+      "target": "足球贴纸"
+    },
+    {
+      "id": 240286,
+      "source": "GN-X I Sticker",
+      "target": "厄运式 I 贴纸"
+    },
+    {
+      "id": 240297,
+      "source": "Rabbit Year Sticker",
+      "target": "兔年贴纸"
+    },
+    {
+      "id": 240298,
+      "source": "Dragon Year Sticker",
+      "target": "龙年贴纸"
+    },
+    {
+      "id": 240299,
+      "source": "Horse Year Sticker",
+      "target": "马年贴纸"
+    },
+    {
+      "id": 240300,
+      "source": "Snake Year Sticker",
+      "target": "蛇年贴纸"
+    },
+    {
+      "id": 240306,
+      "source": "Clan LasTGamE Sticker",
+      "target": "LasTGamE 战队贴纸"
+    },
+    {
+      "id": 240317,
+      "source": "Chinese Sheep Year Sticker",
+      "target": "羊年贴纸"
+    },
+    {
+      "id": 240318,
+      "source": "Heart Sticker",
+      "target": "红心贴纸"
+    },
+    {
+      "id": 240319,
+      "source": "Spade Sticker",
+      "target": "黑桃贴纸"
+    },
+    {
+      "id": 240320,
+      "source": "Clover Sticker",
+      "target": "梅花贴纸"
+    },
+    {
+      "id": 240321,
+      "source": "Diamond Sticker",
+      "target": "方片贴纸"
+    },
+    {
+      "id": 240322,
+      "source": "Winter Stickers",
+      "target": "冬季贴纸"
+    },
+    {
+      "id": 240323,
+      "source": "Autumn Stickers",
+      "target": "秋季贴纸"
+    },
+    {
+      "id": 240325,
+      "source": "春 Sticker",
+      "target": "春贴纸"
+    },
+    {
+      "id": 240326,
+      "source": "Celestial Being2 Sticker",
+      "target": "天人 2 贴纸"
+    },
+    {
+      "id": 240328,
+      "source": "士 Sticker",
+      "target": "士贴纸"
+    },
+    {
+      "id": 240329,
+      "source": "武 Sticker",
+      "target": "武贴纸"
+    },
+    {
+      "id": 240330,
+      "source": "代 Sticker",
+      "target": "代贴纸"
+    },
+    {
+      "id": 240331,
+      "source": "A-LAWS Sticker",
+      "target": "A-LAWS 组织贴纸"
+    },
+    {
+      "id": 240333,
+      "source": "虎 Sticker",
+      "target": "虎贴纸"
+    },
+    {
+      "id": 240334,
+      "source": "白 Sticker",
+      "target": "白贴纸"
+    },
+    {
+      "id": 240336,
+      "source": "靑 Sticker",
+      "target": "靑贴纸"
+    },
+    {
+      "id": 240337,
+      "source": "GN 006 Sticker",
+      "target": "GN-006 标志贴纸"
+    },
+    {
+      "id": 240342,
+      "source": "III Sticker",
+      "target": "罗马数字 III 贴纸"
+    },
+    {
+      "id": 240343,
+      "source": "II Sticker",
+      "target": "罗马数字 II 贴纸"
+    },
+    {
+      "id": 240344,
+      "source": "I Sticker",
+      "target": "罗马数字 I 贴纸"
+    },
+    {
+      "id": 240345,
+      "source": "C Sticker",
+      "target": "字母 C 贴纸"
+    },
+    {
+      "id": 240346,
+      "source": "U Sticker",
+      "target": "字母 U 贴纸"
+    },
+    {
+      "id": 240350,
+      "source": "IV Sticker",
+      "target": "罗马数字 IV 贴纸"
+    },
+    {
+      "id": 240351,
+      "source": "V Sticker",
+      "target": "罗马数字 V 贴纸"
+    },
+    {
+      "id": 240352,
+      "source": "VI Sticker",
+      "target": "罗马数字 VI 贴纸"
+    },
+    {
+      "id": 240355,
+      "source": "VII Sticker",
+      "target": "罗马数字 VII 贴纸"
+    },
+    {
+      "id": 240356,
+      "source": "VIII Sticker",
+      "target": "罗马数字 VIII 贴纸"
+    },
+    {
+      "id": 240357,
+      "source": "IX Sticker",
+      "target": "罗马数字 IX 贴纸"
+    },
+    {
+      "id": 240358,
+      "source": "삼국전 여포군 스티커",
+      "target": "三国传吕布军贴纸"
+    },
+    {
+      "id": 240359,
+      "source": "X Sticker",
+      "target": "罗马数字 X 贴纸"
+    },
+    {
+      "id": 240361,
+      "source": "刀(Sword) Sticker",
+      "target": "刀(Sword)贴纸"
+    },
+    {
+      "id": 240362,
+      "source": "刃(Blade) Sticker",
+      "target": "刃(Blade)贴纸"
+    },
+    {
+      "id": 240363,
+      "source": "Shiranui Sticker",
+      "target": "不知火贴纸"
+    },
+    {
+      "id": 240364,
+      "source": "Militia Sticker",
+      "target": "米利夏贴纸"
+    },
+    {
+      "id": 240365,
+      "source": "Dianna Counter Sticker",
+      "target": "迪安娜反击军贴纸"
+    },
+    {
+      "id": 240369,
+      "source": "Amuro Sticker 2",
+      "target": "阿姆罗贴纸 2"
+    },
+    {
+      "id": 240370,
+      "source": "Amuro Sticker 3",
+      "target": "阿姆罗贴纸 3"
+    },
+    {
+      "id": 240371,
+      "source": "Londo Bell (Gray) Sticker",
+      "target": "隆德·贝尔（灰色）贴纸"
+    },
+    {
+      "id": 240381,
+      "source": "MSA Sticker 1",
+      "target": "MSA 标志贴纸 1"
+    },
+    {
+      "id": 240382,
+      "source": "MSA Sticker 2",
+      "target": "MSA 标志贴纸 2"
+    },
+    {
+      "id": 240384,
+      "source": "Indonesian Flag Sticker",
+      "target": "印度尼西亚国旗贴纸"
+    },
+    {
+      "id": 240386,
+      "source": "Astrayfire's StiAstrayfire's Sticker",
+      "target": "Astrayfire 专属贴纸"
+    },
+    {
+      "id": 240387,
+      "source": "Revenant's Sticker",
+      "target": "Revenant 专属贴纸"
+    },
+    {
+      "id": 240388,
+      "source": "xRedComet's Sticker",
+      "target": "xRedComet 专属贴纸"
+    },
+    {
+      "id": 240389,
+      "source": "League Challenge Cup 11th Championship Sticker",
+      "target": "联赛挑战杯第 11 届冠军贴纸"
+    },
+    {
+      "id": 240390,
+      "source": "League Challenge Cup 12th Championship Sticker",
+      "target": "联赛挑战杯第 12 届冠军贴纸"
+    },
+    {
+      "id": 240391,
+      "source": "League Challenge Cup 13th Championship Sticker",
+      "target": "联赛挑战杯第 13 届冠军贴纸"
+    },
+    {
+      "id": 240392,
+      "source": "League Challenge Cup 14th Championship Sticker",
+      "target": "联赛挑战杯第 14 届冠军贴纸"
+    },
+    {
+      "id": 240393,
+      "source": "League Challenge Cup 15th Championship Sticker",
+      "target": "联赛挑战杯第 15 届冠军贴纸"
+    },
+    {
+      "id": 240394,
+      "source": "League Challenge Cup 16th Championship Sticker",
+      "target": "联赛挑战杯第 16 届冠军贴纸"
+    },
+    {
+      "id": 240395,
+      "source": "League Challenge Cup 17th Championship Sticker",
+      "target": "联赛挑战杯第 17 届冠军贴纸"
+    },
+    {
+      "id": 240396,
+      "source": "League Challenge Cup 18th Championship Sticker",
+      "target": "联赛挑战杯第 18 届冠军贴纸"
+    },
+    {
+      "id": 240397,
+      "source": "League Challenge Cup 19th Championship Sticker",
+      "target": "联赛挑战杯第 19 届冠军贴纸"
+    },
+    {
+      "id": 240398,
+      "source": "League Challenge Cup 20th Championship Sticker",
+      "target": "联赛挑战杯第 20 届冠军贴纸"
+    },
+    {
+      "id": 240399,
+      "source": "Necropenguin's Sticker",
+      "target": "Necropenguin 专属贴纸"
+    },
+    {
+      "id": 240400,
+      "source": "6th Anniversary Sticker",
+      "target": "六周年纪念贴纸"
+    },
+    {
+      "id": 240401,
+      "source": "Test Participating Celabration Sticker",
+      "target": "测试参与纪念贴纸"
+    },
+    {
+      "id": 240402,
+      "source": "Mistletoe Sticker",
+      "target": "槲寄生贴纸"
+    },
+    {
+      "id": 240403,
+      "source": "X-Mas Hat Sticker",
+      "target": "圣诞帽贴纸"
+    },
+    {
+      "id": 240404,
+      "source": "Snowflake Sticker",
+      "target": "雪花贴纸"
+    },
+    {
+      "id": 240405,
+      "source": "Snowman Sticker",
+      "target": "雪人贴纸"
+    },
+    {
+      "id": 240406,
+      "source": "X-Mas Socks Sticker",
+      "target": "圣诞袜贴纸"
+    },
+    {
+      "id": 240407,
+      "source": "CNY Sticker Placeholder 1",
+      "target": "春节贴纸 1"
+    },
+    {
+      "id": 240408,
+      "source": "CNY Sticker Placeholder 2",
+      "target": "春节贴纸 2"
+    },
+    {
+      "id": 240409,
+      "source": "CNY Sticker Placeholder 3",
+      "target": "春节贴纸 3"
+    },
+    {
+      "id": 240410,
+      "source": "CNY Sticker Placeholder 4",
+      "target": "春节贴纸 4"
+    },
+    {
+      "id": 240411,
+      "source": "Pre-season ladder sticker 1",
+      "target": "季前排位贴纸 1"
+    },
+    {
+      "id": 240412,
+      "source": "Pre-season ladder sticker 2",
+      "target": "季前排位贴纸 2"
+    },
+    {
+      "id": 240413,
+      "source": "Pre-season ladder sticker 3",
+      "target": "季前排位贴纸 3"
+    },
+    {
+      "id": 240414,
+      "source": "Pre-season ladder sticker 4",
+      "target": "季前排位贴纸 4"
+    }
+  ]
+}

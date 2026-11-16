@@ -35,17 +35,21 @@ def remove(path):return sharing_retry(lambda:Path(path).unlink(missing_ok=True))
 def read_bytes(path):return sharing_retry(lambda:Path(path).read_bytes())
 
 
-def atomic(path: Path, raw: bytes):
+def atomic(path: Path, raw: bytes, *, temporary_name: str | None = None):
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name('.' + path.name + '.' + uuid.uuid4().hex + '.tmp')
+    if temporary_name is not None and (not isinstance(temporary_name,str) or not temporary_name or temporary_name in ('.','..',path.name) or any(c in temporary_name for c in '/\\:\0')):
+        raise ValueError('原子写入临时文件名无效')
+    temporary = path.with_name(temporary_name or ('.' + path.name + '.' + uuid.uuid4().hex + '.tmp'))
+    created = False
     try:
         with temporary.open('xb') as stream:
+            created = True
             stream.write(raw)
             stream.flush()
             os.fsync(stream.fileno())
         sharing_retry(lambda:os.replace(temporary, path))
     finally:
-        temporary.unlink(missing_ok=True)
+        if created:temporary.unlink(missing_ok=True)
 
 
 def json_bytes(value):
