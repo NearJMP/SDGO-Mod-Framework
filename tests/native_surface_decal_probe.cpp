@@ -422,6 +422,10 @@ int __cdecl ProbeCase(const SdgoGameTestContextV1* context) {
             selectionCaptured=true;
             if(!snapshot.previewLayers){context->Assert(0,"native selection creates an imported layer");return SDGO_GAME_TEST_FAIL;}
         }
+        // Selection hides the native entry button. Continue from the live
+        // production editor snapshot rather than waiting for that entry again.
+        if(auto* service=Service("surface_decal.sticker_vtable"))
+            if(auto* root=At<void*>(service,0xd0))return StickerImportCase(context,root);
     }
     static unsigned step=0,tabClicks=0;static std::uint64_t clicked=0;
     static unsigned visits=0;static bool exiting=false;

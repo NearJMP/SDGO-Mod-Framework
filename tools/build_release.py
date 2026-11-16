@@ -56,6 +56,15 @@ def validate_symbol_requirements(stage, catalog):
             missing=sorted(required-available)
             if missing:
                 raise ValueError('Unresolved runtime symbols for '+mod['id']+' on '+host+': '+', '.join(missing))
+            if fragment is not None:
+                for name in required & set(fragment.sections()) & set(shared.sections()):
+                    for field in ('kind','rva'):
+                        left=shared.get(name,field,fallback='').strip().casefold()
+                        right=fragment.get(name,field,fallback='').strip().casefold()
+                        if field=='rva' and left and right:
+                            try:left,right=int(left,0),int(right,0)
+                            except ValueError:pass
+                        if left!=right:raise ValueError('Conflicting global/Mod symbol '+name+' for '+mod['id']+' on '+host)
 
 
 def build(channel, release_version, stage, manager, output, commit=None, repository=REPOSITORY):

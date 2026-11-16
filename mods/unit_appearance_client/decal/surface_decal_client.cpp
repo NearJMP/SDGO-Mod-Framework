@@ -755,7 +755,7 @@ bool NativeTest(){
 extern "C" __declspec(dllexport) int __cdecl SdgoSurfaceDecalTestObserveV1(test::Snapshot* output){
     if(!NativeTest()||!output||output->size!=sizeof(*output)||output->version!=1)return 0;
     std::lock_guard<std::recursive_mutex> hold(gate);test::Snapshot s;
-    s.editing=editing;s.placing=placing;s.state=static_cast<unsigned>(editor.State());s.pending=pendingCommand;s.selected=selected;s.draws=drawCount;
+    s.editing=editing;s.placing=placing;s.state=static_cast<unsigned>(editor.State());s.pending=pendingUid?pendingCommand:0;s.selected=selected;s.draws=drawCount;
     s.battleDraws=battleDrawCount;
     if(const auto* a=Authority(pageRecord.unitSerial))decalwire::Encode(layer::ToLegacy(*a),s.saved);
     if(editing)decalwire::Encode(layer::ToLegacy(editor.Preview()),s.preview);
@@ -779,7 +779,7 @@ extern "C" __declspec(dllexport) int __cdecl SdgoSurfaceDecalTestLayersV2(std::u
     std::lock_guard<std::recursive_mutex> hold(gate);test::LayerSnapshot value;
     if(!uid)uid=pageRecord.unitSerial;const auto* a=Authority(uid);std::vector<std::uint8_t> bytes;
     if(a&&layerwire::Encode(*a,bytes)){value.savedBytes=unsigned(bytes.size());std::copy(bytes.begin(),bytes.end(),value.saved.begin());}
-    if(editing&&editor.Preview().unitSerial==uid){value.editing=1;value.placing=placing;value.state=unsigned(editor.State());value.pending=pendingCommand;value.selected=selected;value.armed=armed;value.stockTypes=unsigned(stock.size());
+    if(editing&&editor.Preview().unitSerial==uid){value.editing=1;value.placing=placing;value.state=unsigned(editor.State());value.pending=pendingUid?pendingCommand:0;value.selected=selected;value.armed=armed;value.stockTypes=unsigned(stock.size());
         value.previewLayers=unsigned(editor.Preview().items.size());for(const auto& c:quotedCosts)value.quotedItems+=c.required;
         if(layerwire::Encode(editor.Preview(),bytes)){value.previewBytes=unsigned(bytes.size());std::copy(bytes.begin(),bytes.end(),value.preview.begin());}}
     const auto* design=editing&&editor.Preview().unitSerial==uid?&editor.Preview():a;

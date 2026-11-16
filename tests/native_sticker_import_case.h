@@ -12,7 +12,9 @@ int StickerImportCase(const SdgoGameTestContextV1 *context, void *root) {
   test::LayerSnapshot snapshot;
   if (!find || !observe || !observe(0, &snapshot))
     return SDGO_GAME_TEST_FAIL;
-  if (!snapshot.editing || snapshot.pending)
+  // Background catalog/get requests are not an editing lock. Each genuine
+  // control and the production picker apply their own live busy/eligibility gate.
+  if (!snapshot.editing)
     return SDGO_GAME_TEST_WAIT;
   const auto app = reinterpret_cast<void *(__cdecl *)()>(
       ownerApi->Symbol(ownerMod, "game.app"));
