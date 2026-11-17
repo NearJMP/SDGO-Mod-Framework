@@ -495,6 +495,14 @@ record, invokes the original equip business, and requires the genuine reply
 plus matching active UID. `--random-loadout` exercises the native `!rand` PvP
 room command.
 
+Select an imported battle map on the native room page with `--battle-map <MapNo>`, and pass its matching
+`--client-package` together with `--include-mod map_catalog`. For maps with launch pads, add
+`--launch-pad-witness` (GameTest client 0.1.46). It passively reads the local unit's native forced-move state,
+the copied speed, update count and direction, and its position. It requires at least one completed local flight,
+each ending where the native motion model predicts, and reads `match_ai`'s passive counters to require that AI
+pad requests received server-relayed native notices without send failures. The witness writes no position, state
+or packet. A human only flies after actually touching a pad, so a test map can place pads on the spawn points.
+
 `--mission-mode 5` or `8` registers bounded mission smoke cases: native channel
 and mission admission, room creation, start, three level-2 wingmen, movement,
 target acquisition and native combat observations. These cases do not cover

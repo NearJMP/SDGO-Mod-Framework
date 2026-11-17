@@ -170,4 +170,25 @@ def placement_problems(package: Package, variant: str, boxes: list[Box]) -> list
             for i, position in enumerate(pattern):
                 if blocked(boxes, position, 0.0):
                     problems.append(f'item_patterns.{team}[{p}][{i}]')
+    for i, pad in enumerate(package.launch_pads):
+        if pad.only and pad.only != variant:
+            continue
+        for name in ('position', 'target'):
+            if blocked(boxes, getattr(pad, name)):
+                problems.append(f'launch_pads[{i}].{name}')
+    return problems
+
+
+def launch_path_problems(package: Package, variant: str, boxes: list[Box]) -> list[str]:
+    """Launch pads of `variant` whose straight flight passes through an object's collision."""
+    problems = []
+    for i, pad in enumerate(package.launch_pads):
+        if pad.only and pad.only != variant:
+            continue
+        for k in range(1, RAY_SAMPLES):
+            f = k / RAY_SAMPLES
+            point = tuple(pad.position[c] + (pad.target[c] - pad.position[c]) * f for c in range(3))
+            if blocked(boxes, point, 0.0):
+                problems.append(f'launch_pads[{i}]')
+                break
     return problems

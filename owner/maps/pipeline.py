@@ -206,12 +206,16 @@ def occluders(package, baseline):
 
 
 def check_placements(package, baseline) -> None:
-    """Refuse map spawn/sector/item points inside an object (either variant)."""
-    from .occlusion import object_boxes, placement_problems
+    """Refuse map spawn/sector/item/launch points inside an object and launch flights through one."""
+    from .occlusion import launch_path_problems, object_boxes, placement_problems
     from .package import MapPackageError
     problems = []
+    paths = []
     for variant in ('pvp', 'mission'):
         boxes = object_boxes(package, variant, lambda path: baseline.read(path))
         problems += [f'{variant}: {p}' for p in placement_problems(package, variant, boxes)]
+        paths += [f'{variant}: {p}' for p in launch_path_problems(package, variant, boxes)]
     if problems:
         raise MapPackageError('以下点位位于物件内部：' + '、'.join(sorted(set(problems))[:12]))
+    if paths:
+        raise MapPackageError('以下传送台的飞行路线穿过物件：' + '、'.join(sorted(set(paths))[:12]))

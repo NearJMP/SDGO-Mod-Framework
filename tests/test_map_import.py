@@ -28,7 +28,8 @@ def spawn(x, z, y=100.0):
     return {'position': [x, y, z], 'facing': [0, 1]}
 
 
-def write_package(root: Path, *, key='test.flat-plain', mission=None, extra_objects=()) -> Path:
+def write_package(root: Path, *, key='test.flat-plain', mission=None, extra_objects=(), schema_version=1,
+                  extra=None) -> Path:
     files = {
         'terrain/height.png': png(Image.new('L', (257, 257), 0)),
         'terrain/ground.png': png(Image.new('RGBA', (64, 64), (90, 120, 60, 255))),
@@ -38,7 +39,7 @@ def write_package(root: Path, *, key='test.flat-plain', mission=None, extra_obje
     if mission is not None:
         files['missions/m.json'] = json.dumps(mission, ensure_ascii=False).encode('utf-8')
     manifest = {
-        'schema': 'sdgo.map-package', 'schema_version': 1, 'map_key': key,
+        'schema': 'sdgo.map-package', 'schema_version': schema_version, 'map_key': key,
         'name': {'zh': '测试平原', 'en': 'Test Plain'}, 'modes': ['normal'], 'servers': ['beginner'],
         'terrain': {'half_extent': 4096, 'height': {'image': 'terrain/height.png', 'min': 0, 'max': 0},
                     'layers': [{'texture': 'terrain/ground.png', 'tiling': 32}],
@@ -50,6 +51,7 @@ def write_package(root: Path, *, key='test.flat-plain', mission=None, extra_obje
         'presentation': {'preview': 'images/preview.png', 'minimap': 'images/minimap.png',
                          'bgm': {'native': 'BGM\\0001.mp3'}},
     }
+    manifest.update(extra or {})
     for name, raw in files.items():
         (root / name).parent.mkdir(parents=True, exist_ok=True)
         (root / name).write_bytes(raw)
@@ -323,6 +325,85 @@ class CompileTests(unittest.TestCase):
             self.assertEqual(len(build.rows[0][2]), 0x34C)
             compiler.verify_trn(build.resources[build.report['trn'].replace('\\', '/').lower()])
             self.assertEqual(build.server['tbl_MapFile'][0]['MapNo'], 143)
+
+    def test_launch_pads_compile_to_native_forced_move_volumes(self):
+        pads = [{'position': [0, 150, 0], 'target': [1500, 400, 300]},
+                {'position': [-600, 120, 0], 'target': [-600, 300, 1800], 'size': 200, 'speed': 60, 'only': 'pvp'}]
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = P.load(write_package(Path(tmp), schema_version=3, extra={'launch_pads': pads}))
+            self.assertEqual(len(pkg.launch_pads), 2)
+            build = compiler.compile_map(pkg, map_no=143, map_id=500, variant='pvp')
+            trn = compiler.verify_trn(build.resources[build.report['trn'].replace('\\', '/').lower()])
+            self.assertEqual(len(trn.force_move_pads), 2)
+            for pad, native, report in zip(pkg.launch_pads, trn.force_move_pads, build.report['launch_pads']):
+                delta = [pad.target[k] - pad.position[k] for k in range(3)]
+                distance = sum(c * c for c in delta) ** 0.5
+                forward = native.transform.forward
+                for k in range(3):
+                    self.assertAlmostEqual(forward[k], delta[k] / distance, places=5)
+                    self.assertAlmostEqual(native.transform.position[k], pad.position[k], places=3)
+                self.assertAlmostEqual(sum(a * b for a, b in zip(forward, native.transform.up)), 0.0, places=5)
+                self.assertEqual(native.transform.scale, (pad.size / 2,) * 3)
+                self.assertTrue(16 <= native.speed <= 100 and 10 <= native.duration <= 300)
+                self.assertEqual(native.duration, int(native.duration))
+                self.assertAlmostEqual(compiler.launch_travel(native.speed, int(native.duration)), distance, places=2)
+                self.assertEqual(report['updates'], int(native.duration))
+            # the authored preferred speed is kept when the duration can be fitted around it
+            self.assertAlmostEqual(trn.force_move_pads[1].speed, 60, delta=2.5)
+            mission = compiler.compile_map(pkg, map_no=144, map_id=500, variant='mission')
+            mission_trn = compiler.verify_trn(mission.resources[mission.report['trn'].replace('\\', '/').lower()])
+            self.assertEqual(len(mission_trn.force_move_pads), 1)
+
+    def test_launch_pad_motion_fits_the_native_envelope(self):
+        def motion(distance, speed=40.0):
+            return compiler.launch_motion(P.LaunchPad((0, 100, 0), (distance, 100, 0), 50.0, speed))
+        for distance in (160, 400, 2400, 9000, 27000):
+            m = motion(distance)
+            self.assertTrue(16 <= m.speed <= 100 and 10 <= m.updates <= 300)
+            self.assertAlmostEqual(compiler.launch_travel(m.speed, m.updates), distance, places=3)
+        for distance in (100, 30000):
+            with self.assertRaises(compiler.MapCompileError):
+                motion(distance)
+        straight_up = compiler.launch_motion(P.LaunchPad((0, 100, 0), (0, 2100, 0), 50.0, 40.0))
+        self.assertAlmostEqual(sum(a * b for a, b in zip(straight_up.direction, straight_up.up)), 0.0, places=6)
+
+    def test_launch_pads_are_validated(self):
+        good = {'position': [0, 150, 0], 'target': [1500, 400, 0]}
+        cases = [
+            (2, [good], 'schema_version=3'),
+            (3, [dict(good, target=[3000, 400, 0])], '活动范围之外'),
+            (3, [dict(good, target=[0, 5000, 0])], '高于活动范围上限'),
+            (3, [dict(good, target=[200, 150, 0])], '触发范围之外'),
+            (3, [dict(good, colour='red')], '未知字段'),
+            (3, [dict(good, speed=5)], '超出范围'),
+        ]
+        for version, pads, message in cases:
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as tmp:
+                root = write_package(Path(tmp), schema_version=version, extra={
+                    'launch_pads': pads, 'terrain': {
+                        'half_extent': 4096, 'height': {'image': 'terrain/height.png', 'min': 0, 'max': 0},
+                        'layers': [{'texture': 'terrain/ground.png', 'tiling': 32}],
+                        'lighting': {'bake_shadows': False},
+                        'play_area': {'half_x': 2048, 'half_z': 2048, 'ceiling': 3000}}})
+                with self.assertRaisesRegex(P.MapPackageError, message):
+                    P.load(root)
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = P.load(write_package(Path(tmp), schema_version=3,
+                                       extra={'launch_pads': [dict(good, target=[1500, 10, 0])]}))
+            with self.assertRaisesRegex(compiler.MapCompileError, '低于地面'):
+                compiler.compile_map(pkg, map_no=143, map_id=500, variant='pvp')
+
+    def test_launch_pad_points_and_flights_are_checked_against_objects(self):
+        from types import SimpleNamespace
+        box = ((800.0, 300.0, 0.0), ((1, 0, 0), (0, 1, 0), (0, 0, 1)), (100.0, 300.0, 100.0))
+        pad = P.LaunchPad((0, 150, 0), (1600, 300, 0))
+        package = SimpleNamespace(spawns={}, sectors={}, item_patterns={}, launch_pads=[pad])
+        self.assertEqual(occlusion.launch_path_problems(package, 'pvp', [box]), ['launch_pads[0]'])
+        self.assertEqual(occlusion.launch_path_problems(package, 'pvp', []), [])
+        package.launch_pads = [P.LaunchPad((0, 150, 0), (800, 300, 0))]
+        self.assertEqual(occlusion.placement_problems(package, 'pvp', [box]), ['launch_pads[0].target'])
+        package.launch_pads = [P.LaunchPad((0, 150, 0), (1600, 300, 0), only='mission')]
+        self.assertEqual(occlusion.launch_path_problems(package, 'pvp', [box]), [])
 
     def test_mission_compile_links_spawn_mirrors_and_lays_out_objective_text(self):
         with tempfile.TemporaryDirectory() as tmp:

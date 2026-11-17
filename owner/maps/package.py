@@ -1,4 +1,4 @@
-"""Load and validate a neutral map package (`sdgo.map-package` v1).
+"""Load and validate a neutral map package (`sdgo.map-package` v1..v3).
 
 A map package is authored outside the game: glTF 2.0 models, PNG images and a JSON manifest. Nothing in it
 names game-internal records except optional references to resources that already exist in the target
@@ -20,8 +20,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 SCHEMA = 'sdgo.map-package'
-SCHEMA_VERSION = 2
-SUPPORTED_SCHEMA_VERSIONS = (1, 2)
+SCHEMA_VERSION = 3
+SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3)
 MAX_MANIFEST_BYTES = 4 * 1024 * 1024
 MAX_FILE_BYTES = 64 * 1024 * 1024
 MAX_PACKAGE_BYTES = 512 * 1024 * 1024
@@ -35,6 +35,11 @@ SERVER_TYPES = ('training', 'beginner', 'expert', 'clan')
 TEAM_SPAWNS = 6
 SHARED_SPAWNS = 12
 ITEM_PATTERN_POINTS = 8
+MAX_LAUNCH_PADS = 64
+LAUNCH_PAD_SIZE = (50.0, 1000.0)       # trigger cube edge, game units
+LAUNCH_PAD_SPEED = (16.0, 100.0)      # native authored range, units per logic update
+LAUNCH_PAD_DEFAULT_SIZE = 300.0
+LAUNCH_PAD_DEFAULT_SPEED = 40.0
 NATIVE_PATH = re.compile(r'(?i)(mdrs\\[0-9a-z_]{1,24}\.mod|bgm\\[0-9a-z_]{1,40}\.mp3)')
 KEY = re.compile(r'[a-z0-9][a-z0-9._-]{2,63}')
 
@@ -112,6 +117,19 @@ class MapObject:
 
 
 @dataclass
+class LaunchPad:
+    """v3: touching the trigger cube at `position` flies the unit in a straight line to `target`.
+
+    Compiled to the client's native forced-move volume, so every client and the Battle host use the original
+    request/notification path; `speed` is the preferred native speed (the compiler fits the duration)."""
+    position: tuple[float, float, float]
+    target: tuple[float, float, float]
+    size: float = LAUNCH_PAD_DEFAULT_SIZE
+    speed: float = LAUNCH_PAD_DEFAULT_SPEED
+    only: str = ''                       # '' | 'pvp' | 'mission'
+
+
+@dataclass
 class Layer:
     texture: str
     mask: str
@@ -153,6 +171,7 @@ class Package:
     bgm_file: str = ''
     boundary_lines: bool = True     # paint the play area / movable area edges on the ground
     files: dict[str, str] = field(default_factory=dict)
+    launch_pads: list[LaunchPad] = field(default_factory=list)
 
     def read(self, relative: str) -> bytes:
         if relative not in self.files:
@@ -223,6 +242,41 @@ def _collision(value: Any, what: str):
     return boxes
 
 
+def _launch_pads(value: Any, version: int, half: float, play_x: float, play_z: float,
+                 ceiling: float) -> list[LaunchPad]:
+    if value is None:
+        return []
+    if version < 3:
+        _fail('launch_pads 需要 schema_version=3')
+    if not isinstance(value, list) or len(value) > MAX_LAUNCH_PADS:
+        _fail(f'launch_pads 必须是最多 {MAX_LAUNCH_PADS} 个传送台的列表')
+    pads = []
+    for i, row in enumerate(value):
+        what = f'launch_pads[{i}]'
+        if not isinstance(row, dict):
+            _fail(f'{what} 必须是对象')
+        unknown = set(row) - {'position', 'target', 'size', 'speed', 'only'}
+        if unknown:
+            _fail(f'{what} 含未知字段：' + '、'.join(sorted(unknown)))
+        points = {}
+        for name in ('position', 'target'):
+            point = _vector(row.get(name), 3, f'{what}.{name}', half * 2)
+            if abs(point[0]) > play_x or abs(point[2]) > play_z:
+                _fail(f'{what}.{name} 位于活动范围之外')
+            if point[1] > ceiling:
+                _fail(f'{what}.{name} 高于活动范围上限 {ceiling:.0f}')
+            points[name] = point
+        size = _number(row.get('size', LAUNCH_PAD_DEFAULT_SIZE), what + '.size', *LAUNCH_PAD_SIZE)
+        speed = _number(row.get('speed', LAUNCH_PAD_DEFAULT_SPEED), what + '.speed', *LAUNCH_PAD_SPEED)
+        only = row.get('only', '')
+        if only not in ('', 'pvp', 'mission'):
+            _fail(f'{what}.only 只能是 pvp 或 mission')
+        if math.dist(points['position'], points['target']) <= size:
+            _fail(f'{what}.target 必须位于本传送台触发范围之外（距离需大于 size）')
+        pads.append(LaunchPad(points['position'], points['target'], size, speed, only))
+    return pads
+
+
 def load(root: Path | str) -> Package:
     """Read `map.json` from a package folder and validate every field and file digest."""
     root = Path(root).resolve()
@@ -236,7 +290,7 @@ def load(root: Path | str) -> Package:
     version = m.get('schema_version') if isinstance(m, dict) else None
     if (not isinstance(m, dict) or m.get('schema') != SCHEMA or type(version) is not int
             or version not in SUPPORTED_SCHEMA_VERSIONS):
-        _fail(f'map.json 必须声明 schema={SCHEMA} 且 schema_version=1 或 2')
+        _fail(f'map.json 必须声明 schema={SCHEMA} 且 schema_version=1、2 或 3')
     key = m.get('map_key')
     if not isinstance(key, str) or not KEY.fullmatch(key):
         _fail('map_key 必须是 3..64 个小写字母、数字、点、下划线或连字符')
@@ -415,6 +469,8 @@ def load(root: Path | str) -> Package:
     if len(patterns['red']) != len(patterns['blue']):
         _fail('item_patterns 的 red 与 blue 组数必须相同')
 
+    launch_pads = _launch_pads(m.get('launch_pads'), version, half, play_x, play_z, ceiling)
+
     presentation = m.get('presentation') or {}
     preview = packaged(presentation.get('preview'), 'presentation.preview', ('.png',))
     minimap = packaged(presentation.get('minimap'), 'presentation.minimap', ('.png',))
@@ -444,4 +500,4 @@ def load(root: Path | str) -> Package:
                    fog_start=fog_start, fog_end=fog_end, sky=sky, play_half_x=play_x, play_half_z=play_z,
                    ceiling=ceiling, objects=objects, spawns=spawns, sectors=sectors, item_patterns=patterns,
                    preview=preview, minimap=minimap, bgm_native=bgm_native, bgm_file=bgm_file,
-                   boundary_lines=boundary_lines, files=checked)
+                   boundary_lines=boundary_lines, files=checked, launch_pads=launch_pads)

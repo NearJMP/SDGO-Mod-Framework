@@ -148,7 +148,7 @@ Translucent props use glTF material `alphaMode: "BLEND"`. The compiler retains b
 
 | Field | Meaning |
 | --- | --- |
-| `schema`, `schema_version` | `sdgo.map-package`, `1` or `2`; named native objects require v2. Existing packages remain readable |
+| `schema`, `schema_version` | `sdgo.map-package`, `1`, `2` or `3`; named native objects require v2 and `launch_pads` require v3. Existing packages remain readable |
 | `map_key` | Unique map identifier: 3..64 lowercase letters, digits, `.`, `_`, `-` |
 | `name`, `description` | `{"zh": …, "en": …}`; names up to 48 characters, Chinese descriptions up to 99 UTF-16 code units |
 | `modes` | PvP modes: `normal`, `deathmatch`, `grid`, `tag`, `captain`, `ai`, `ai_battleship` (may be empty for a mission-only map) |
@@ -163,8 +163,26 @@ Translucent props use glTF material `alphaMode: "BLEND"`. The compiler retains b
 | `spawns` | `team_a` and `team_b` with 6 points each, `shared` with 1..12, plus `grid_respawn_a`/`grid_respawn_b` for Grid mode; each point has `position` and `facing`. In the mission terrain the shared points are the respawn points: a pilot who falls in phase *p* respawns at shared point 2*p*−2 or 2*p*−1, so the compiler gives every phase its own pair — phase 1 at `shared[0]`/`shared[1]`, a phase that enters a sector at that sector's first two `warp` points, a phase with a new `enter.area` inside that area, any other phase at the previous phase's pair |
 | `sectors` | Named mission sector spawn points (`{name: {spawns: [...]}}`) |
 | `item_patterns` | Item spawn sets; `red` and `blue` need the same number of sets |
+| `launch_pads` | v3: up to 64 launch pads. Each has the entry centre `position` and the landing point `target`, plus optional `size` (trigger cube edge, 50..1000, default 300), `speed` (native speed 16..100, default 40) and `only` (`pvp`/`mission`). See below |
 | `presentation` | `preview` (PNG), `minimap` (PNG, the whole terrain), `bgm` (an MP3 in the package or `{"native": "BGM\\NNNN.mp3"}`). The compiler makes the map image from the minimap like the shipped maps: the play area keeps its aspect inside the square texture and is framed by an orange-yellow boundary line; the mission row's image also outlines every movable area its missions use. `boundary_lines` (default `true`) paints the boundary on the ground with the band the shipped PvP maps use: the play area's edge on the PvP map, and the edge of every movable area on the mission map (the play area's edge when its missions have no areas) |
 | `files` | SHA-256 of every file in the package |
+
+### Launch pads (`launch_pads`)
+
+A unit that touches a launch pad flies in a straight line to the author's landing point and then lands normally. Launch pads compile to the game's own forced-move volumes, the same device shipped maps use: the local client launches immediately and sends the original request, which the Battle server relays to everyone else in the room. Host-controlled PvP AI use the same flow. Launch pads need no server data and do not change spawn or respawn points.
+
+```json
+"launch_pads": [
+  {"position": [-1650, 520, -75], "target": [-300, 760, 0], "size": 300}
+]
+```
+
+- `position` is the centre of the trigger cube, which is oriented along the flight. Units must actually touch it; for a pad on the ground, put the centre slightly above the ground (about 100).
+- `target` is where the flight ends. It must be inside the play area, at least 20 above the ground there, not above `ceiling`, and outside the pad's own trigger.
+- The compiler converts the flight into the native direction, speed and duration: each logic update moves `speed × 0.9`, and the unit glides another `speed × 0.81` when the force ends. Flights must be 157..27081 long. `speed` is the preferred speed; the compiler adjusts it within the native range so that the flight ends exactly at `target`.
+- The landing point is calculated from the trigger centre. A unit entering at the edge of the trigger lands correspondingly offset, by at most half of `size`.
+- The straight flight must not pass through terrain or a colliding object, and neither end may be inside an object. Compilation or registration reports the pad index otherwise.
+- The pad itself is invisible. To show it, place a model object with `collision: "none"` at the same position.
 
 ### Named gates and bombardment targets
 

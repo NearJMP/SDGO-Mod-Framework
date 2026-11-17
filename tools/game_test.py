@@ -3591,6 +3591,7 @@ def prepare(
     bind_staged_loader: bool = False,
     client_packages: tuple[Path, ...] = (),
     battle_map: int = 0,
+    launch_pad_witness: bool = False,
     unit_package: Path | None = None,
     unit_presets: Path | None = None,
     capsule_package: Path | None = None,
@@ -4253,6 +4254,9 @@ def prepare(
         # PvP map number selected on the native room page; 0 keeps the quick-room random-map policy.
         if type(battle_map) is not int or not 0<=battle_map<=255:raise GameTestError('--battle-map must be a MapNo in 0..255')
         observer_config['settings']['BattleMap']=str(battle_map)
+        # Imported launch pads: passive local-flight and AI relay witness, asserted at the battle end.
+        if launch_pad_witness and not battle_map:raise GameTestError('--launch-pad-witness needs the --battle-map that carries the pads')
+        observer_config['settings']['LaunchPadWitness']='1' if launch_pad_witness else '0'
         for key,value in mission_campaigns.settings(plan.get('mission_campaign')).items():
             observer_config['settings'][key]=value
         for key,value in unit_scenarios.settings(plan.get('unit_scenario')).items():
@@ -5886,6 +5890,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     prepare_parser.add_argument('--client-package',type=Path,action='append',default=[],help='explicit client package imported into the owned copy before sealing')
     prepare_parser.add_argument('--unit-presets',type=Path,help='paired default-preset publication installed beside primary unit content before sealing')
     prepare_parser.add_argument('--battle-map',type=int,default=0,help='PvP MapNo chosen on the native room page (0 = quick-room random map)')
+    prepare_parser.add_argument('--launch-pad-witness',action='store_true',help='with --battle-map: require a local native launch-pad flight near the travel model and server-relayed AI pad notices')
     prepare_parser.add_argument('--disable-mod',action='append',default=[],help='explicit client Mod switched off in the owned copy before sealing')
     prepare_parser.add_argument('--fps-gameplay-cap',type=int,help='verify native 60 Hz gameplay and the selected render cap during a full PvP battle')
     prepare_parser.add_argument('--oc-allocate',help="OC six-stat acceptance '<stat 0-5>:<points>': allocate normal OC points to the --play-unit-uid unit through the production client Mod before the PvP battle")
@@ -6017,6 +6022,7 @@ def main(argv: list[str] | None = None) -> int:
                 client_packages=tuple(args.client_package),
                 unit_presets=args.unit_presets,
                 battle_map=args.battle_map,
+                launch_pad_witness=args.launch_pad_witness,
                 disabled_mods=tuple(args.disable_mod),
                 fps_gameplay_cap=args.fps_gameplay_cap,
                 oc_allocate=args.oc_allocate,

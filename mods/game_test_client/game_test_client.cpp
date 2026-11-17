@@ -75,6 +75,7 @@ void ObserveOptionalDialogue(const SdgoGameTestContextV1* context,bool finish=fa
 #include "sdgo/pvp_ai_client_observer.h"
 #include "scoreboard_actions.h"
 #include "battle_ai_behavior_probe.h"
+#include "launch_pad_witness.h"
 #include "battle_ai_performance_probe.h"
 #include "native_death_probe.h"
 #include "native_hurt_probe.h"
@@ -245,6 +246,7 @@ SdgoAceAiGetAnnouncementSnapshotV1Fn getAcePvpAnnouncement=nullptr;
 SdgoAceAiGetAnnouncementSnapshotV1Fn getAceMissionAnnouncement=nullptr;
 ScoreboardActions scoreboardInput;
 BattleAiBehaviorProbe battleAiBehavior;
+LaunchPadWitness launchPadWitness;
 NativeDeathProbe nativeDeathProbe;
 NativeHurtProbe nativeHurtProbe;
 NativeAiLivesProbe nativeAiLives;
@@ -1539,6 +1541,7 @@ bool ObserveLiveBattle(const SdgoGameTestContextV1* context,const SdgoPvpAiClien
     // the key now so the native roster animates shut and stays out of the recording.
     if (reviewFootage && rosterClosedForReview) scoreboardInput.Hold(false);
     if(!battleAiBehavior.Observe(context,live)) return false;
+    launchPadWitness.Observe(context,live);
     if(!nativeDeathProbe.Observe(context)) return false;
     ObserveOptionalDialogue(context);
     SdgoPvpAiClientStartStatusV1 nativeControl{};
@@ -1599,6 +1602,7 @@ int __cdecl Return(const SdgoGameTestContextV1* context) {
         context->Assert(ended.reply_opcode == 0x0871, "the original client consumed the genuine server battle-end reply");
         context->Assert(1, "Lua observation stayed available with zero errors through the entire real battle");
         battleAiBehavior.Finish(context);
+        launchPadWitness.Finish(context);
         nativeDeathProbe.Finish(context);
         nativeAiLives.Finish(context);
         ObserveOptionalDialogue(context,true);

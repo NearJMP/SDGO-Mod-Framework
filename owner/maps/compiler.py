@@ -9,6 +9,11 @@ Output of `compile_map` (nothing is written to disk here):
 * ``rows``       native grid records ``(kind, id, bytes)``: one 844-byte map row (kind 0x0F).
 * ``server``     rows for tbl_MapFile, tbl_MapData and tbl_MapItemPath.
 
+``launch_pads`` (map package v3) become the client's native forced-move volumes in the terrain. Touching one
+makes the client send its ordinary forced-move request; the Battle host relays the notification to every
+client, which moves the unit along the volume's forward axis by ``speed`` per logic update for ``updates``
+updates. No server row is needed.
+
 `variant` selects which objects are placed: ``pvp`` (objects without ``only`` or ``only: pvp``) or
 ``mission`` (objects without ``only`` or ``only: mission``). A mission variant produces a separate map row
 with the MissionMode flag, because the client never lists a mission row in PvP room lists.
@@ -26,7 +31,7 @@ from typing import Callable
 from PIL import Image, ImageDraw, ImageFilter
 
 from . import block as block_protocol, gltf, mod_format, trn_format, txr_format
-from .package import GRID, Package, MapPackageError, Spawn
+from .package import GRID, LAUNCH_PAD_SPEED, LaunchPad, Package, MapPackageError, Spawn
 
 MAP_KIND = 0x0F
 MAP_ROW_BYTES = 0x34C
@@ -52,6 +57,56 @@ SERVER_COLUMNS = {'training': 'Server_Training', 'beginner': 'Server_Beginner', 
 
 class MapCompileError(ValueError):
     pass
+
+
+# Native forced move: the movement state applies direction * speed each logic update while the force lasts and
+# the movement surface damps it by 0.9; the terminal update damps the last step once more. Travel along the
+# direction is therefore speed * (0.9 * updates + 0.81). Shipped terrains use 10..300 updates.
+LAUNCH_DAMPING = 0.9
+LAUNCH_UPDATES = (10, 300)
+LAUNCH_PATH_SAMPLES = 32
+
+
+@dataclass(frozen=True)
+class LaunchMotion:
+    direction: tuple[float, float, float]
+    up: tuple[float, float, float]
+    speed: float
+    updates: int
+    distance: float
+
+
+def launch_travel(speed: float, updates: int) -> float:
+    return speed * (LAUNCH_DAMPING * updates + LAUNCH_DAMPING * LAUNCH_DAMPING)
+
+
+def launch_motion(pad: LaunchPad) -> LaunchMotion:
+    """Native direction, speed and duration that carry a unit from the pad centre to its target."""
+    delta = tuple(pad.target[k] - pad.position[k] for k in range(3))
+    distance = math.sqrt(sum(c * c for c in delta))
+    lo, hi = LAUNCH_PAD_SPEED
+    step = LAUNCH_DAMPING * LAUNCH_DAMPING
+    if not launch_travel(lo, LAUNCH_UPDATES[0]) <= distance <= launch_travel(hi, LAUNCH_UPDATES[1]):
+        raise MapCompileError(f'传送距离 {distance:.0f} 超出原生范围 '
+                              f'{launch_travel(lo, LAUNCH_UPDATES[0]):.0f}..{launch_travel(hi, LAUNCH_UPDATES[1]):.0f}')
+    updates = round((distance / pad.speed - step) / LAUNCH_DAMPING)
+    updates = min(max(updates, LAUNCH_UPDATES[0]), LAUNCH_UPDATES[1])
+    speed = distance / (LAUNCH_DAMPING * updates + step)
+    if speed > hi:
+        updates = math.ceil((distance / hi - step) / LAUNCH_DAMPING)
+    elif speed < lo:
+        updates = math.floor((distance / lo - step) / LAUNCH_DAMPING)
+    updates = min(max(updates, LAUNCH_UPDATES[0]), LAUNCH_UPDATES[1])
+    speed = distance / (LAUNCH_DAMPING * updates + step)
+    if not lo - 1e-6 <= speed <= hi + 1e-6:
+        raise MapCompileError(f'传送距离 {distance:.0f} 无法换算为原生速度')
+    direction = tuple(c / distance for c in delta)
+    # the volume's up axis must be perpendicular to its forward (push) axis
+    reference = (0.0, 1.0, 0.0) if abs(direction[1]) < 0.99 else (0.0, 0.0, 1.0)
+    dot = sum(reference[k] * direction[k] for k in range(3))
+    up = tuple(reference[k] - dot * direction[k] for k in range(3))
+    length = math.sqrt(sum(c * c for c in up))
+    return LaunchMotion(direction, tuple(c / length for c in up), speed, updates, distance)
 
 
 @dataclass
@@ -700,6 +755,33 @@ def compile_map(package: Package, *, map_no: int, map_id: int, variant: str = 'p
                                   'Idx': index, 'PosX': position[0], 'PosY': position[1], 'PosZ': position[2]})
             builder.add_item_pattern(team, indices)
 
+    # -- launch pads: native forced-move volumes (trigger cube oriented along the flight)
+    pad_reports = []
+    for i, pad in enumerate(package.launch_pads):
+        if pad.only and pad.only != variant:
+            continue
+        what = f'launch_pads[{i}]'
+        if pad.position[1] < terrain.at(pad.position[0], pad.position[2]) - pad.size / 2:
+            raise MapCompileError(f'{what}.position 埋在地面以下')
+        ground = terrain.at(pad.target[0], pad.target[2])
+        if pad.target[1] < ground + 20:
+            raise MapCompileError(f'{what}.target 低于地面（地面高度 {ground:.0f}）')
+        try:
+            motion = launch_motion(pad)
+        except MapCompileError as error:
+            raise MapCompileError(f'{what}：{error}') from None
+        for k in range(1, LAUNCH_PATH_SAMPLES):
+            f = k / LAUNCH_PATH_SAMPLES
+            point = tuple(pad.position[c] + (pad.target[c] - pad.position[c]) * f for c in range(3))
+            if point[1] < terrain.at(point[0], point[2]) - 5.0:
+                raise MapCompileError(f'{what} 的飞行路线穿过地形（约 {point[0]:.0f}, {point[1]:.0f}, {point[2]:.0f}）')
+        builder.add_force_move_pad(pad.position, pad.size / 2, motion.direction, speed=motion.speed,
+                                   duration=float(motion.updates), up=motion.up)
+        pad_reports.append({'index': i, 'position': list(pad.position), 'target': list(pad.target),
+                            'size': pad.size, 'direction': [round(c, 6) for c in motion.direction],
+                            'speed': round(motion.speed, 4), 'updates': motion.updates,
+                            'distance': round(motion.distance, 1)})
+
     # -- boundary lines on the ground: the play area (PvP), or every movable area the missions use
     if package.boundary_lines:
         if native_exists is not None and not native_exists(BOUNDARY_BAND):
@@ -765,7 +847,7 @@ def compile_map(package: Package, *, map_no: int, map_id: int, variant: str = 'p
         out.server['tbl_MapObjects'] = [dict(block_definitions[item['name']]['server']) for item in block_reports]
         out.server['tbl_MapBlocks'] = block_rows
     out.report = {'map_key': package.map_key, 'map_no': map_no, 'map_id': map_id, 'variant': variant,
-                  'objects': placed, 'blocks': block_reports,
+                  'objects': placed, 'blocks': block_reports, 'launch_pads': pad_reports,
                   'spawns': {k: len(v) for k, v in package.spawns.items()},
                   'item_patterns': {k: len(v) for k, v in package.item_patterns.items()},
                   'trn': _native(trn_name), 'trn_bytes': len(resources[trn_name]), **models.stats}
@@ -780,5 +862,6 @@ def verify_trn(raw: bytes) -> trn_format.TrnFile:
     return parsed
 
 
-__all__ = ['CompiledMap', 'MapCompileError', 'MapPackageError', 'compile_map', 'map_row', 'flags', 'spr_bytes',
-           'verify_trn', 'FIRST_IMPORTED_MAP_NO', 'MAP_ROW_FIRST_ID', 'MAP_KIND']
+__all__ = ['CompiledMap', 'LaunchMotion', 'MapCompileError', 'MapPackageError', 'compile_map', 'launch_motion',
+           'launch_travel', 'map_row', 'flags', 'spr_bytes', 'verify_trn', 'FIRST_IMPORTED_MAP_NO',
+           'MAP_ROW_FIRST_ID', 'MAP_KIND']
