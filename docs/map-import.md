@@ -4,6 +4,8 @@
 
 Register maps and missions that were made outside the game and prepared in the **map package protocol**: new terrain, objects, spawn points, sky, minimap and music, plus PvE missions with phase objectives, enemy waves, character dialogue, opening/mid-mission/ending cutscenes and native unit illustration strips. Imported maps appear in the battle room map list and imported missions in the mission room list, next to the original ones.
 
+Making a PvP battle map? Start with the [PvP map authoring guide](map-pvp-authoring.md): size, Blender export, baked lighting, ground, spawns, icon, packaging and a pre-delivery checklist.
+
 The feature only imports. It reads protocol data, generates the records and resources the game needs and installs them on the client and the server. It does not unpack, export or change the game's own maps and missions.
 
 The mission catalogue, default room name and objective title retain the mission file's `name.zh`; NPC labels and attack multipliers do not replace it. If an older build displays a weapon field name, recompile and publish the client content with Manager 1.16.25 or later. An unchanged server plan needs no reapplication or server restart.
