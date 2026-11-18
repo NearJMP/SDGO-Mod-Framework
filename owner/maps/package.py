@@ -115,6 +115,7 @@ class MapObject:
     initially_hidden: bool = False
     block: NativeBlock | None = None
     ground: bool | tuple[str, ...] = False   # v3: True (every mesh) or glTF node names whose top surface is walkable
+    camera_fade: bool | None = None          # v3: fade when it blocks the camera; None = automatic
 
 
 @dataclass
@@ -388,13 +389,15 @@ def load(root: Path | str) -> Package:
             _fail(f'{what} 必须是对象')
         common_fields = {'position', 'rotation_y', 'scale', 'model', 'native_model', 'collision', 'only'}
         semantic_fields = {'id', 'initially_hidden', 'block'}
-        unknown = set(row) - common_fields - semantic_fields - {'ground'}
+        unknown = set(row) - common_fields - semantic_fields - {'ground', 'camera_fade'}
         if unknown:
             _fail(f'{what} 含未知字段：' + '、'.join(sorted(unknown)))
         if version < 2 and set(row) & semantic_fields:
             _fail(f'{what} 的命名物件语义需要 schema_version=2')
         if version < 3 and 'ground' in row:
             _fail(f'{what}.ground 需要 schema_version=3')
+        if version < 3 and 'camera_fade' in row:
+            _fail(f'{what}.camera_fade 需要 schema_version=3')
         position = _vector(row.get('position'), 3, what + '.position', half * 2)
         if abs(position[0]) > half or abs(position[2]) > half:
             _fail(f'{what} 位于地形之外')
@@ -445,6 +448,10 @@ def load(root: Path | str) -> Package:
             obj.block = NativeBlock(template=template, name=display_name, hp=hp)
         elif obj.initially_hidden:
             _fail(f'{what}.initially_hidden 只适用于 block 物件')
+        if 'camera_fade' in row:
+            if not isinstance(row['camera_fade'], bool):
+                _fail(f'{what}.camera_fade 必须是布尔值')
+            obj.camera_fade = row['camera_fade']
         ground = row.get('ground', False)
         if ground is not False:
             if not obj.model or obj.block is not None:

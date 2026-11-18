@@ -30,7 +30,7 @@ from typing import Callable
 
 from PIL import Image, ImageDraw, ImageFilter
 
-from . import block as block_protocol, gltf, mod_format, trn_format, txr_format
+from . import block as block_protocol, gltf, map_tag, mod_format, trn_format, txr_format
 from .package import GRID, LAUNCH_PAD_SPEED, LaunchPad, Package, MapPackageError, Spawn
 
 MAP_KIND = 0x0F
@@ -41,6 +41,7 @@ FIRST_IMPORTED_MAP_NO = 143
 TEXTURE_LIMIT = 2048          # D3D9-safe maximum (txr_format.MAX_DIMENSION)
 TEXTURE_FORMATS = ('PNG', 'JPEG')   # model and terrain colour textures
 PREVIEW_SIZE = (120, 83)
+CAMERA_FADE_MAX_SPAN = 3000.0  # models wider than 30 m (or walkable ground) do not fade when blocking the camera
 RADAR_SIZE = 256
 LIGHTMAP_SIZE = 512
 NATIVE_PATH_CHARS = 31
@@ -388,6 +389,7 @@ class _ModelCompiler:
         self.resources = resources
         self.textures: dict[str, str] = {}       # sha256 of source -> native path
         self.models: dict[tuple, str] = {}
+        self.spans: dict[str, float] = {}         # native model path -> horizontal extent in model units
         self.stats = {'models': 0, 'triangles': 0, 'textures': 0, 'collision_boxes': 0}
 
     def texture(self, source: bytes, what: str) -> str:
@@ -456,6 +458,9 @@ class _ModelCompiler:
         name = f'mdrs/{self.prefix}o{len(self.models):02d}.mod'
         self.resources[name] = raw
         self.models[key] = _native(name)
+        xs = [p[0] for mesh in build for p in mesh.positions]
+        zs = [p[2] for mesh in build for p in mesh.positions]
+        self.spans[self.models[key]] = max(max(xs) - min(xs), max(zs) - min(zs))
         self.stats['models'] += 1
         self.stats['collision_boxes'] += len(boxes)
         return self.models[key]
@@ -713,6 +718,7 @@ def compile_map(package: Package, *, map_no: int, map_id: int, variant: str = 'p
 
     # -- objects
     placed = 0
+    opaque_objects: list[int] = []
     block_rows = []
     block_reports = []
     block_order = {index: order for order, (index, _obj) in enumerate(block_objects)}
@@ -740,7 +746,16 @@ def compile_map(package: Package, *, map_no: int, map_id: int, variant: str = 'p
         angle = math.radians(obj.rotation_y)
         forward = (math.sin(angle), 0.0, math.cos(angle))
         if obj.block is None:
-            builder.add_static_block(path, obj.position, forward, (0.0, 1.0, 0.0), obj.scale)
+            # Shipped props fade while they block the camera (back_alpha). A model covering a large part of the
+            # map (a stadium, a floor, a field of grass) would turn the whole scene see-through, so walkable
+            # ground and anything wider than CAMERA_FADE_MAX_SPAN keeps its opacity unless the package says so.
+            fade = obj.camera_fade
+            if fade is None:
+                span = 0.0 if obj.native_model else models.spans.get(path, 0.0) * max(abs(obj.scale[0]), abs(obj.scale[2]))
+                fade = not obj.ground and span < CAMERA_FADE_MAX_SPAN
+            if not fade:
+                opaque_objects.append(i)
+            builder.add_static_block(path, obj.position, forward, (0.0, 1.0, 0.0), obj.scale, back_alpha=int(fade))
         else:
             order = block_order[i]
             identity = block_object_first + order
@@ -853,10 +868,15 @@ def compile_map(package: Package, *, map_no: int, map_id: int, variant: str = 'p
 
     # -- presentation (shared)
     if 'presentation' not in shared:
-        preview = _open(package.read(package.preview), 'presentation.preview').convert('RGB').resize(PREVIEW_SIZE, Image.LANCZOS)
-        canvas = Image.new('RGB', (128, 128), (0, 0, 0))
-        canvas.paste(preview, (0, 0))
-        resources[f'txrs/{prefix}p.txr'] = txr_format.build_txr(128, 128, canvas.convert('RGBA').tobytes())
+        # shipped layout: the English name as a glowing pixel tag over a 120x64 scene picture (map_tag)
+        scene = _open(package.read(package.preview), 'presentation.preview')
+        glyphs = map_tag.native_glyphs(native_read)
+        sprite = map_tag.preview_sprite(scene, package.name.get('en') or package.map_key, glyphs)
+        canvas = Image.new('RGBA', (128, 128), (*map_tag.KEY, 0))
+        canvas.paste(sprite, (0, 0))
+        resources[f'txrs/{prefix}p.txr'] = txr_format.build_txr(128, 128, canvas.tobytes())
+        shared['preview_tag'] = {'text': (package.name.get('en') or package.map_key).upper(),
+                                 'native_glyphs': len(glyphs)}
         resources[f'sprs/{prefix}p.spr'] = spr_bytes(_native(f'txrs/{prefix}p.txr'), PREVIEW_SIZE[0], PREVIEW_SIZE[1], (128, 128))
         minimap = _open(package.read(package.minimap), 'presentation.minimap').convert('RGB')
         radar, shared['radar_rect'] = radar_image(package, minimap)
@@ -905,6 +925,7 @@ def compile_map(package: Package, *, map_no: int, map_id: int, variant: str = 'p
         out.server['tbl_MapBlocks'] = block_rows
     out.report = {'map_key': package.map_key, 'map_no': map_no, 'map_id': map_id, 'variant': variant,
                   'objects': placed, 'blocks': block_reports, 'launch_pads': pad_reports,
+                  'camera_fade_off': opaque_objects, 'preview_tag': shared.get('preview_tag'),
                   'ground_vertices': terrain.ground_vertices, 'terrain_render': package.terrain_render,
                   'spawns': {k: len(v) for k, v in package.spawns.items()},
                   'item_patterns': {k: len(v) for k, v in package.item_patterns.items()},

@@ -156,13 +156,15 @@ manifest = {
 | `terrain.lighting` | `sun_direction`（y 必须小于 0）、`sun_color`、`ambient`、`bake_shadows`（烘焙光照与阴影） |
 | `terrain.fog`、`terrain.sky` | 雾的颜色与起止距离；天空 `zenith`/`horizon`/`ground` 颜色 |
 | `terrain.play_area` | 可活动范围 `half_x`、`half_z` 和高度上限 `ceiling` |
-| `objects` | 最多 1024 个物件：`model`（包内 glTF）或 `native_model`（目标客户端已有的模型），`position`、`rotation_y`、`scale`、`collision`（`auto`、`none` 或碰撞盒列表）、可选 `only`（`pvp`/`mission`）。v2 的 `id` 是稳定内部名称；`block` 声明原生可破坏物件，包含目标客户端/服务端都有的 `template`、显示名称 `name`（`zh` 必填，`en` 可选）和可选 `hp`；`initially_hidden` 设置初始隐藏状态。v3 中 `ground` 让模型的上表面成为可行走地面（见下文） |
+| `objects` | 最多 1024 个物件：`model`（包内 glTF）或 `native_model`（目标客户端已有的模型），`position`、`rotation_y`、`scale`、`collision`（`auto`、`none` 或碰撞盒列表）、可选 `only`（`pvp`/`mission`）。v2 的 `id` 是稳定内部名称；`block` 声明原生可破坏物件，包含目标客户端/服务端都有的 `template`、显示名称 `name`（`zh` 必填，`en` 可选）和可选 `hp`；`initially_hidden` 设置初始隐藏状态。v3 中 `ground` 让模型的上表面成为可行走地面（见下文），`camera_fade`（布尔值）决定物件挡住镜头时是否变成半透明。默认与原版小物件一样会淡化，但可行走地面和宽度超过 30 米的模型保持不透明，避免整座场馆或整片草地一起变透明 |
 | `spawns` | `team_a`、`team_b` 各 6 个，`shared` 1..12 个，`grid` 模式另需 `grid_respawn_a`/`grid_respawn_b`；每个点 `position` 与 `facing`。任务地形中的 shared 点即复活点：第 *p* 阶段阵亡的驾驶员在第 2*p*−2 或 2*p*−1 个 shared 点复活，因此编译器为每个阶段生成一对复活点——第 1 阶段为 `shared[0]`/`shared[1]`，进入区域（sector）的阶段为该区域前两个 `warp` 点，设置新 `enter.area` 的阶段移入该范围内，其余阶段沿用上一阶段 |
 | `sectors` | 任务分区出生点（`{name: {spawns: [...]}}`），供任务切换区域使用 |
 | `item_patterns` | 道具刷新组，`red` 与 `blue` 组数相同 |
 | `launch_pads` | v3：传送台，最多 64 个。每个包含入口中心 `position`、落点 `target`，可选 `size`（触发立方体边长，50..1000，默认 300）、`speed`（原生速度 16..100，默认 40）和 `only`（`pvp`/`mission`）。见下文 |
-| `presentation` | `preview`（地图预览 PNG）、`minimap`（小地图 PNG，覆盖整个地形）、`bgm`（包内 MP3 或 `{"native": "BGM\\NNNN.mp3"}`）。编译器按原版地图的做法由小地图生成地图图像：活动区保持原比例放在方形贴图中，四周画出橙黄色边界线；任务行的地图图像还会框出任务用到的每个活动范围。`boundary_lines`（默认 `true`）在地面上画出边界线，使用原版对战地图的边界色带：对战地图画在活动区边缘，任务地图画在任务用到的每个活动范围边缘（任务没有活动范围时画在活动区边缘） |
+| `presentation` | `preview`（地图场景图 PNG）、`minimap`（小地图 PNG，覆盖整个地形）、`bgm`（包内 MP3 或 `{"native": "BGM\\NNNN.mp3"}`）。编译器按原版地图的做法由小地图生成地图图像：活动区保持原比例放在方形贴图中，四周画出橙黄色边界线；任务行的地图图像还会框出任务用到的每个活动范围。`boundary_lines`（默认 `true`）在地面上画出边界线，使用原版对战地图的边界色带：对战地图画在活动区边缘，任务地图画在任务用到的每个活动范围边缘（任务没有活动范围时画在活动区边缘） |
 | `files` | 包内每个文件的 SHA-256 |
+
+房间界面与原版地图一样，把每张地图显示为一张 120×83 的图：上方 19 行是发光像素字的英文名牌（`name.en`，大写），下方是 `preview` 场景图居中裁成的 120×64 画面。名牌由编译器按原版名牌的画法生成：字形取自目标客户端自带的地图预览图集，图集中没有的字符用同风格的内置像素字体，作者只需提供场景图。
 
 ### 传送台（`launch_pads`）
 

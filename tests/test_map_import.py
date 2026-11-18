@@ -442,6 +442,57 @@ class CompileTests(unittest.TestCase):
         package.launch_pads = [P.LaunchPad((0, 150, 0), (1600, 300, 0), only='mission')]
         self.assertEqual(occlusion.launch_path_problems(package, 'pvp', [box]), [])
 
+    def test_preview_sprite_has_the_native_name_tag_layout(self):
+        from owner.maps import map_tag
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = P.load(write_package(Path(tmp)))
+            build = compiler.compile_map(pkg, map_no=143, map_id=500, variant='pvp')
+            self.assertEqual(build.report['preview_tag'], {'text': 'TEST PLAIN', 'native_glyphs': 0})
+            raw = next(v for k, v in build.resources.items() if k.endswith('p.txr'))
+            sprite = Image.open(io.BytesIO(raw)).convert('RGBA')
+            self.assertEqual(sprite.size, (128, 128))
+            px = sprite.load()
+            self.assertEqual(px[0, 0][3], 0)                     # transparent around the tag
+            self.assertEqual(px[0, 18][3], 0)
+            white = [x for x in range(120) if px[x, 8] == (255, 255, 255, 255)]
+            self.assertTrue(white and abs((white[0] + white[-1]) / 2 - 60) <= 3)   # centred glyphs
+            self.assertTrue(all(px[x, y][3] == 255 for x in (0, 60, 119) for y in (19, 50, 82)))  # picture
+            self.assertEqual(px[0, 83][3], 0)
+        # glyph harvesting reads shipped tags by atlas cell; a synthetic atlas drawn with the fallback font
+        atlas = Image.new('RGBA', (1024, 1024), (255, 0, 255, 0))
+        for (cx, cy), text in map_tag._TAGS.items():
+            atlas.alpha_composite(map_tag.tag(text, {}), (map_tag._CELL_X + map_tag._CELL_DX * cx,
+                                                          map_tag._CELL_Y + map_tag._CELL_DY * cy))
+        glyphs = map_tag.harvest(atlas)
+        self.assertIn('G', glyphs)
+        self.assertEqual(glyphs['O'], map_tag._fallback('O'))
+        self.assertEqual(map_tag.harvest(Image.new('RGBA', (64, 64))), {})
+        # long names are condensed into the 120-pixel tag
+        self.assertEqual(map_tag.tag('KURGIS BATTLEFIELD SOUTH', {}).size, (120, 19))
+
+    def test_large_and_ground_models_keep_their_opacity_when_blocking_the_camera(self):
+        objects = [
+            {'model': 'models/big.glb', 'position': [0, 0, 0], 'rotation_y': 0, 'scale': 100, 'collision': 'none'},
+            {'model': 'models/small.glb', 'position': [1000, 0, 1000], 'rotation_y': 0, 'scale': 100,
+             'collision': 'none'},
+            {'model': 'models/big.glb', 'position': [0, 0, 0], 'rotation_y': 0, 'scale': 100, 'collision': 'none',
+             'camera_fade': True},
+            {'model': 'models/small.glb', 'position': [-1000, 0, 1000], 'rotation_y': 0, 'scale': 100,
+             'collision': 'none', 'ground': True},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            root = write_package(Path(tmp), schema_version=3)
+            add_files(root, {'models/big.glb': quad_glb('Big', 0.1, -20, 20, -20, 20),
+                             'models/small.glb': quad_glb('Small', 0.1, -2, 2, -2, 2)},
+                      lambda m: m['objects'].extend(objects))
+            build = compiler.compile_map(P.load(root), map_no=143, map_id=500, variant='pvp')
+            trn = compiler.verify_trn(build.resources[build.report['trn'].replace('\\', '/').lower()])
+            self.assertEqual([b.back_alpha for b in trn.static_blocks], [0, 1, 1, 0])
+            self.assertEqual(build.report['camera_fade_off'], [0, 3])
+            add_files(root, {}, lambda m: m['objects'][0].update(camera_fade='no'))
+            with self.assertRaisesRegex(P.MapPackageError, 'camera_fade'):
+                P.load(root)
+
     def test_dense_meshes_split_within_the_engine_index_limit(self):
         # dense foliage: 50000 separate triangles (150000 vertices, 150000 indices). The engine accepts at most
         # 65535 indices per node (CIndexBuffer::Allocate), so the builder must split by faces, not only vertices.
