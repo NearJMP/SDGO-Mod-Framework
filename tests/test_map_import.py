@@ -442,6 +442,26 @@ class CompileTests(unittest.TestCase):
         package.launch_pads = [P.LaunchPad((0, 150, 0), (1600, 300, 0), only='mission')]
         self.assertEqual(occlusion.launch_path_problems(package, 'pvp', [box]), [])
 
+    def test_dense_meshes_split_within_the_engine_index_limit(self):
+        # dense foliage: 50000 separate triangles (150000 vertices, 150000 indices). The engine accepts at most
+        # 65535 indices per node (CIndexBuffer::Allocate), so the builder must split by faces, not only vertices.
+        from owner.maps import mod_format
+        n = 50000
+        positions = [(float(i % 400), float(k), float(i // 400)) for i in range(n) for k in (0, 1, 2)]
+        normals = [(0.0, 1.0, 0.0)] * len(positions)
+        uvs = [(0.5, 0.5)] * len(positions)
+        faces = [(3 * i, 3 * i + 1, 3 * i + 2) for i in range(n)]
+        mesh = mod_format.BuildMesh('grass', positions, normals, uvs, faces)
+        model = mod_format.build_static_model([mesh], [mod_format.BuildMaterial(texture=r'Txrs\9001.txr')])
+        nodes = [node for node in model.nodes if node.mesh is not None]
+        self.assertGreaterEqual(len(nodes), 3)
+        self.assertTrue(all(node.mesh.face_count * 3 <= 0xFFFF for node in nodes))
+        self.assertEqual(sum(node.mesh.face_count for node in nodes), n)
+        self.assertEqual(mod_format.validate(mod_format.parse(mod_format.serialize(model))), [])
+        nodes[0].mesh.index_data += nodes[1].mesh.index_data
+        nodes[0].mesh.groups[-1].face_count += nodes[1].mesh.face_count
+        self.assertTrue(any('65535 indices' in problem for problem in mod_format.validate(model)))
+
     def test_model_ground_replaces_the_terrain_under_selected_meshes(self):
         # Floor: x -5..5, asset z 5..15 (game z -1500..-500) at y 3, placed at scale 100
         floor = {'model': 'models/arena.glb', 'position': [0, 0, 0], 'rotation_y': 0, 'scale': 100,

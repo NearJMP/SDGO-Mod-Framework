@@ -133,6 +133,9 @@ ANIM_EVENT_SIZE = 0xAC
 OBB_SIZE = 0x84
 GLOBAL_SCRIPT = 'Global_Script'
 MAX_U16_VERTICES = 0xFFFF
+# CIndexBuffer::Allocate (GOnline 0x00C33270) accepts 1..65535 indices; a larger node gets no index buffer and the
+# upload that follows faults on the null buffer. Each node therefore holds at most 21845 triangles.
+MAX_NODE_FACES = 0xFFFF // 3
 
 IDENTITY = (1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0)
 OBB_CACHE_DEFAULT = (0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.5, 0.5, 0.5)
@@ -638,6 +641,8 @@ def validate(mod: ModFile) -> list[str]:
                 problems.append(f'{where}: vertex format {node.vertex_format} stores no vertices')
             if mesh.vertex_count > MAX_U16_VERTICES:
                 problems.append(f'{where}: more than 65535 vertices')
+            if mesh.face_count > MAX_NODE_FACES:
+                problems.append(f'{where}: more than 65535 indices (the engine refuses the index buffer)')
             if mesh.index_data and max(struct.unpack('<%dH' % (len(mesh.index_data) // 2), mesh.index_data)) >= mesh.vertex_count:
                 problems.append(f'{where}: index out of range')
             covered = 0
@@ -697,13 +702,14 @@ class BuildMesh:
 
 
 def _mesh_chunks(mesh: BuildMesh, materials: Sequence[int]):
-    """Yield (faces, face_materials, vertex_ids) chunks with at most 65535 distinct vertices each."""
+    """Yield (faces, vertex_ids) chunks within the engine's per-node limits: at most 65535 distinct vertices
+    and 65535 indices (MAX_NODE_FACES triangles)."""
     order = sorted(range(len(mesh.faces)), key=lambda f: materials[f])
     chunk, used = [], {}
     for f in order:
         face = mesh.faces[f]
         new = sum(1 for v in face if v not in used)
-        if len(used) + new > MAX_U16_VERTICES:
+        if len(used) + new > MAX_U16_VERTICES or len(chunk) >= MAX_NODE_FACES:
             yield chunk, used
             chunk, used = [], {}
         for v in face:
@@ -751,7 +757,8 @@ def build_static_model(meshes: Sequence[BuildMesh], materials: Sequence[BuildMat
     root-level kind-1 node with identity transforms and pos+normal+uv vertices, CModel material 0 is the
     exporter's untextured default followed by the supplied materials, the Kudiz table repeats every material
     with its texture in slot 0, there are no animations, and `collision` becomes the OBB section. Meshes
-    with more than 65535 distinct vertices are split into several nodes (`name`, `name_1`, ...).
+    over the engine's per-node limits (65535 distinct vertices, 65535 indices) are split into several nodes
+    (`name`, `name_1`, ...).
     """
     if not meshes:
         raise ModFormatError('a model needs at least one mesh')
