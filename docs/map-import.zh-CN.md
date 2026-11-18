@@ -144,18 +144,19 @@ manifest = {
 
 | 字段 | 说明 |
 | --- | --- |
-| `schema`、`schema_version` | `sdgo.map-package`，`1`、`2` 或 `3`；命名原生物件使用 v2，传送台 `launch_pads` 使用 v3，旧包继续读取 |
+| `schema`、`schema_version` | `sdgo.map-package`，`1`、`2` 或 `3`；命名原生物件使用 v2，传送台 `launch_pads`、`objects[].ground` 和 `terrain.render` 使用 v3，旧包继续读取 |
 | `map_key` | 地图唯一标识，3..64 个小写字母、数字、`.`、`_`、`-` |
 | `name`、`description` | `{"zh": …, "en": …}`；名称最多 48 个字符，中文说明最多 99 个 UTF-16 代码单元 |
 | `modes` | 对战模式：`normal`、`deathmatch`、`grid`、`tag`、`captain`、`ai`、`ai_battleship`（可为空，只用作任务地图） |
 | `servers` | 服务器类型：`training`、`beginner`、`expert`、`clan` |
 | `terrain.half_extent` | 地形半宽：4096、8192 或 16384 |
-| `terrain.height` | `image`（257×257 灰度 PNG）、`min`、`max` |
+| `terrain.height` | `image`（257×257 灰度 PNG，第 0 行为北边）、`min`、`max` |
+| `terrain.render` | v3，默认 `true`。`false` 隐藏高度图地形表面，与大多数原版地图相同，只显示模型作为地面。高度图仍决定机体行走的高度，因此需与 `objects[].ground` 配合使用。地面边界线画在地形上，会随地形一起隐藏 |
 | `terrain.layers` | 1..8 层地表，自下而上绘制：`texture`（PNG 或 JPEG）、`mask`（覆盖度 0..255，第一层可省略）、`tiling`。编译器把覆盖度遮罩换算成每个顶点合计 255 的混合权重，与原版地图一致 |
 | `terrain.lighting` | `sun_direction`（y 必须小于 0）、`sun_color`、`ambient`、`bake_shadows`（烘焙光照与阴影） |
 | `terrain.fog`、`terrain.sky` | 雾的颜色与起止距离；天空 `zenith`/`horizon`/`ground` 颜色 |
 | `terrain.play_area` | 可活动范围 `half_x`、`half_z` 和高度上限 `ceiling` |
-| `objects` | 最多 1024 个物件：`model`（包内 glTF）或 `native_model`（目标客户端已有的模型），`position`、`rotation_y`、`scale`、`collision`（`auto`、`none` 或碰撞盒列表）、可选 `only`（`pvp`/`mission`）。v2 的 `id` 是稳定内部名称；`block` 声明原生可破坏物件，包含目标客户端/服务端都有的 `template`、显示名称 `name`（`zh` 必填，`en` 可选）和可选 `hp`；`initially_hidden` 设置初始隐藏状态 |
+| `objects` | 最多 1024 个物件：`model`（包内 glTF）或 `native_model`（目标客户端已有的模型），`position`、`rotation_y`、`scale`、`collision`（`auto`、`none` 或碰撞盒列表）、可选 `only`（`pvp`/`mission`）。v2 的 `id` 是稳定内部名称；`block` 声明原生可破坏物件，包含目标客户端/服务端都有的 `template`、显示名称 `name`（`zh` 必填，`en` 可选）和可选 `hp`；`initially_hidden` 设置初始隐藏状态。v3 中 `ground` 让模型的上表面成为可行走地面（见下文） |
 | `spawns` | `team_a`、`team_b` 各 6 个，`shared` 1..12 个，`grid` 模式另需 `grid_respawn_a`/`grid_respawn_b`；每个点 `position` 与 `facing`。任务地形中的 shared 点即复活点：第 *p* 阶段阵亡的驾驶员在第 2*p*−2 或 2*p*−1 个 shared 点复活，因此编译器为每个阶段生成一对复活点——第 1 阶段为 `shared[0]`/`shared[1]`，进入区域（sector）的阶段为该区域前两个 `warp` 点，设置新 `enter.area` 的阶段移入该范围内，其余阶段沿用上一阶段 |
 | `sectors` | 任务分区出生点（`{name: {spawns: [...]}}`），供任务切换区域使用 |
 | `item_patterns` | 道具刷新组，`red` 与 `blue` 组数相同 |
@@ -179,6 +180,25 @@ manifest = {
 - 落点从触发中心计算；机体从触发范围边缘进入时，实际落点相应偏移，偏差不超过 `size` 的一半。
 - 直线飞行不能穿过地形或带碰撞的物件，起点和落点也不能位于物件内部；否则编译或登记时报错并给出传送台编号。
 - 传送台本身不可见。需要显示时，在同一位置放一个 `collision: "none"` 的模型物件作为外观。
+
+### 模型地面（`objects[].ground`）
+
+机体走在地形高度场上，而不是模型三角面上。模型充当可见地面（地板、场馆、甲板）时，把它声明为地面，两者就不会错位：
+
+```json
+"objects": [
+  {"model": "models/arena.glb", "position": [0, 0, 0], "scale": 100, "collision": "none",
+   "ground": ["Floor"]}
+],
+"terrain": {"render": false, "height": {"image": "terrain/height.png", "min": -121, "max": 751}}
+```
+
+- `ground` 为 `true`（模型的全部网格）或 1..64 个 glTF 节点名称。只适用于包内模型，不适用于原生模型和 `block` 物件。
+- 编译器按物件的摆放方式放置所选网格，在其覆盖的每个地形格点（间距为 `half_extent × 2 / 256`）取最高表面的高度。这些格点使用模型高度，其余格点保留高度图。
+- 只选择应该站上去的表面。选中的墙体、屋顶和高大物件也会变成地面。比格点间距更细的细节无法体现。
+- 节点名称不存在，或所选网格没有覆盖任何格点，编译即报错。编译报告中的 `ground_vertices` 是取样的格点数量。
+- 出生点、道具点和传送台按生成后的地面检查，请相对模型表面摆放。
+- 选区以外高度图与模型对不上时（例如地板和高度图来自不同来源），用 `terrain.render: false` 隐藏地形，并选中所有可行走的表面。
 
 ### 命名门板与炮击目标
 

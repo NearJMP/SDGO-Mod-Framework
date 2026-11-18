@@ -148,18 +148,19 @@ Translucent props use glTF material `alphaMode: "BLEND"`. The compiler retains b
 
 | Field | Meaning |
 | --- | --- |
-| `schema`, `schema_version` | `sdgo.map-package`, `1`, `2` or `3`; named native objects require v2 and `launch_pads` require v3. Existing packages remain readable |
+| `schema`, `schema_version` | `sdgo.map-package`, `1`, `2` or `3`; named native objects require v2; `launch_pads`, `objects[].ground` and `terrain.render` require v3. Existing packages remain readable |
 | `map_key` | Unique map identifier: 3..64 lowercase letters, digits, `.`, `_`, `-` |
 | `name`, `description` | `{"zh": …, "en": …}`; names up to 48 characters, Chinese descriptions up to 99 UTF-16 code units |
 | `modes` | PvP modes: `normal`, `deathmatch`, `grid`, `tag`, `captain`, `ai`, `ai_battleship` (may be empty for a mission-only map) |
 | `servers` | Server types: `training`, `beginner`, `expert`, `clan` |
 | `terrain.half_extent` | Terrain half size: 4096, 8192 or 16384 |
-| `terrain.height` | `image` (257×257 greyscale PNG), `min`, `max` |
+| `terrain.height` | `image` (257×257 greyscale PNG, row 0 = north), `min`, `max` |
+| `terrain.render` | v3, default `true`. `false` hides the height-map terrain surface, as most shipped maps do: the models are the only visible ground. The height map still defines where units walk, so use it together with `objects[].ground`. Ground boundary lines are painted on the terrain and are hidden with it |
 | `terrain.layers` | 1..8 surface layers painted bottom to top: `texture` (PNG or JPEG), `mask` (coverage 0..255, optional on the first layer), `tiling`. The compiler turns the coverage masks into per-vertex blend weights that sum to 255, as in the shipped maps |
 | `terrain.lighting` | `sun_direction` (y must be negative), `sun_color`, `ambient`, `bake_shadows` (baked light and shadows) |
 | `terrain.fog`, `terrain.sky` | Fog colour and start/end distance; sky `zenith`/`horizon`/`ground` colours |
 | `terrain.play_area` | Playable `half_x`, `half_z` and height `ceiling` |
-| `objects` | Up to 1024 objects: `model` (a glTF in the package) or `native_model` (an existing client model), `position`, `rotation_y`, `scale`, `collision` (`auto`, `none` or boxes), and optional `only` (`pvp`/`mission`). In v2, `id` is the stable internal name; `block` declares a native destroyable object with a client/server `template`, display `name` (required `zh`, optional `en`) and optional `hp`; `initially_hidden` sets its initial visibility |
+| `objects` | Up to 1024 objects: `model` (a glTF in the package) or `native_model` (an existing client model), `position`, `rotation_y`, `scale`, `collision` (`auto`, `none` or boxes), and optional `only` (`pvp`/`mission`). In v2, `id` is the stable internal name; `block` declares a native destroyable object with a client/server `template`, display `name` (required `zh`, optional `en`) and optional `hp`; `initially_hidden` sets its initial visibility. In v3, `ground` makes the model's top surface the walkable ground (see below) |
 | `spawns` | `team_a` and `team_b` with 6 points each, `shared` with 1..12, plus `grid_respawn_a`/`grid_respawn_b` for Grid mode; each point has `position` and `facing`. In the mission terrain the shared points are the respawn points: a pilot who falls in phase *p* respawns at shared point 2*p*−2 or 2*p*−1, so the compiler gives every phase its own pair — phase 1 at `shared[0]`/`shared[1]`, a phase that enters a sector at that sector's first two `warp` points, a phase with a new `enter.area` inside that area, any other phase at the previous phase's pair |
 | `sectors` | Named mission sector spawn points (`{name: {spawns: [...]}}`) |
 | `item_patterns` | Item spawn sets; `red` and `blue` need the same number of sets |
@@ -183,6 +184,25 @@ A unit that touches a launch pad flies in a straight line to the author's landin
 - The landing point is calculated from the trigger centre. A unit entering at the edge of the trigger lands correspondingly offset, by at most half of `size`.
 - The straight flight must not pass through terrain or a colliding object, and neither end may be inside an object. Compilation or registration reports the pad index otherwise.
 - The pad itself is invisible. To show it, place a model object with `collision: "none"` at the same position.
+
+### Model ground (`objects[].ground`)
+
+Units walk on the terrain height field, not on model triangles. When a model supplies the visible ground (a floor, a stadium, a deck), declare it as ground so the two cannot drift apart:
+
+```json
+"objects": [
+  {"model": "models/arena.glb", "position": [0, 0, 0], "scale": 100, "collision": "none",
+   "ground": ["Floor"]}
+],
+"terrain": {"render": false, "height": {"image": "terrain/height.png", "min": -121, "max": 751}}
+```
+
+- `ground` is `true` (every mesh of the model) or a list of 1..64 glTF node names. It applies only to package models, not to native models or `block` objects.
+- The compiler places the selected meshes as the object is placed and samples their highest surface at every terrain grid vertex they cover (the grid spacing is `half_extent × 2 / 256`). Those vertices take the model height; vertices outside the meshes keep the height image.
+- Choose the surfaces people should stand on. Walls, roofs and tall props in the selection would also become ground. Thin details smaller than the grid spacing are not resolved.
+- A selection that matches no node, or covers no grid vertex, is a compile error. The compile report lists the number of sampled vertices as `ground_vertices`.
+- Spawns, item points and launch pads are checked against the resulting ground, so place them relative to the model surface.
+- When the height image and the model disagree outside the selection (for example a floor exported from a different source), hide the terrain with `terrain.render: false` and select every walkable surface instead.
 
 ### Named gates and bombardment targets
 

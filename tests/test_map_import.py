@@ -60,6 +60,43 @@ def write_package(root: Path, *, key='test.flat-plain', mission=None, extra_obje
     return root
 
 
+def quad_glb(node: str, y: float, x0: float, x1: float, z0: float, z1: float) -> bytes:
+    """A textured horizontal quad as one named glTF node (asset space: -Z forward)."""
+    out = io.BytesIO()
+    Image.new('RGB', (16, 16), (110, 100, 90)).save(out, format='PNG')
+    image = out.getvalue()
+    positions = struct.pack('<12f', x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1)
+    uvs = struct.pack('<8f', 0, 0, 1, 0, 1, 1, 0, 1)
+    indices = struct.pack('<6H', 0, 2, 1, 0, 3, 2)
+    blob = positions + uvs + indices + image + b'\0' * (-len(image) % 4)
+    views = [{'buffer': 0, 'byteOffset': 0, 'byteLength': 48}, {'buffer': 0, 'byteOffset': 48, 'byteLength': 32},
+             {'buffer': 0, 'byteOffset': 80, 'byteLength': 12}, {'buffer': 0, 'byteOffset': 92, 'byteLength': len(image)}]
+    doc = {'asset': {'version': '2.0'}, 'scene': 0, 'scenes': [{'nodes': [0]}], 'nodes': [{'mesh': 0, 'name': node}],
+           'meshes': [{'primitives': [{'attributes': {'POSITION': 0, 'TEXCOORD_0': 1}, 'indices': 2, 'material': 0}]}],
+           'materials': [{'pbrMetallicRoughness': {'baseColorTexture': {'index': 0}}}],
+           'textures': [{'source': 0}], 'images': [{'bufferView': 3, 'mimeType': 'image/png'}],
+           'accessors': [{'bufferView': 0, 'componentType': 5126, 'count': 4, 'type': 'VEC3',
+                          'min': [min(x0, x1), y, min(z0, z1)], 'max': [max(x0, x1), y, max(z0, z1)]},
+                         {'bufferView': 1, 'componentType': 5126, 'count': 4, 'type': 'VEC2'},
+                         {'bufferView': 2, 'componentType': 5123, 'count': 6, 'type': 'SCALAR'}],
+           'bufferViews': views, 'buffers': [{'byteLength': len(blob)}]}
+    body = json.dumps(doc).encode('utf-8')
+    body += b' ' * (-len(body) % 4)
+    return (struct.pack('<4sII', b'glTF', 2, 28 + len(body) + len(blob)) + struct.pack('<I4s', len(body), b'JSON')
+            + body + struct.pack('<I4s', len(blob), b'BIN\0') + blob)
+
+
+def add_files(root: Path, files: dict, edit=None) -> None:
+    manifest = json.loads((root / 'map.json').read_text(encoding='utf-8'))
+    for name, raw in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_bytes(raw)
+        manifest['files'][name] = hashlib.sha256(raw).hexdigest()
+    if edit:
+        edit(manifest)
+    (root / 'map.json').write_text(json.dumps(manifest, ensure_ascii=False), encoding='utf-8')
+
+
 def templates():
     def row(size, ident):
         raw = bytearray(size)
@@ -404,6 +441,70 @@ class CompileTests(unittest.TestCase):
         self.assertEqual(occlusion.placement_problems(package, 'pvp', [box]), ['launch_pads[0].target'])
         package.launch_pads = [P.LaunchPad((0, 150, 0), (1600, 300, 0), only='mission')]
         self.assertEqual(occlusion.launch_path_problems(package, 'pvp', [box]), [])
+
+    def test_model_ground_replaces_the_terrain_under_selected_meshes(self):
+        # Floor: x -5..5, asset z 5..15 (game z -1500..-500) at y 3, placed at scale 100
+        floor = {'model': 'models/arena.glb', 'position': [0, 0, 0], 'rotation_y': 0, 'scale': 100,
+                 'collision': 'none', 'ground': ['Floor']}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = write_package(Path(tmp), schema_version=3)
+            add_files(root, {'models/arena.glb': quad_glb('Floor', 3, -5, 5, 5, 15)},
+                      lambda m: (m['objects'].append(floor), m['terrain'].update(render=False)))
+            pkg = P.load(root)
+            self.assertEqual(pkg.objects[0].ground, ('Floor',))
+            self.assertFalse(pkg.terrain_render)
+            terrain = compiler._Terrain(pkg)
+            self.assertAlmostEqual(terrain.at(0, -1000), 300.0, places=3)
+            self.assertAlmostEqual(terrain.at(300, -700), 300.0, places=3)
+            self.assertAlmostEqual(terrain.at(0, 1000), 0.0, places=3)     # the mirrored side is untouched
+            self.assertAlmostEqual(terrain.at(2000, -1000), 0.0, places=3)
+            build = compiler.compile_map(pkg, map_no=143, map_id=500, variant='pvp')
+            self.assertGreater(build.report['ground_vertices'], 900)
+            self.assertFalse(build.report['terrain_render'])
+            trn = compiler.verify_trn(build.resources[build.report['trn'].replace('\\', '/').lower()])
+            self.assertEqual(trn.props.terrain_render, 0)
+            # a spawn placed for the old height image is now under the declared floor
+            add_files(root, {}, lambda m: m['spawns'].update(shared=[spawn(0, -1000)]))
+            with self.assertRaisesRegex(compiler.MapCompileError, '低于地面'):
+                compiler.compile_map(P.load(root), map_no=143, map_id=500, variant='pvp')
+            # every mesh of the model when ground is true; unknown node names are refused
+            add_files(root, {}, lambda m: (m['spawns'].update(shared=[spawn(0, 0)]),
+                                           m['objects'][0].update(ground=True)))
+            self.assertAlmostEqual(compiler._Terrain(P.load(root)).at(0, -1000), 300.0, places=3)
+            add_files(root, {}, lambda m: m['objects'][0].update(ground=['Floor', 'Missing']))
+            with self.assertRaisesRegex(compiler.MapCompileError, 'Missing'):
+                compiler._Terrain(P.load(root))
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = P.load(write_package(Path(tmp), schema_version=3))
+            self.assertTrue(pkg.terrain_render)
+            build = compiler.compile_map(pkg, map_no=143, map_id=500, variant='pvp')
+            trn = compiler.verify_trn(build.resources[build.report['trn'].replace('\\', '/').lower()])
+            self.assertEqual((trn.props.terrain_render, build.report['ground_vertices']), (1, 0))
+
+    def test_model_ground_and_hidden_terrain_are_validated(self):
+        floor = {'model': 'models/arena.glb', 'position': [0, 0, 0], 'rotation_y': 0, 'scale': 100,
+                 'collision': 'none'}
+        cases = [
+            (2, {'ground': ['Floor']}, None, 'schema_version=3'),
+            (2, {}, {'render': False}, 'schema_version=3'),
+            (3, {}, {'render': 0}, '布尔值'),
+            (3, {'ground': []}, None, 'glTF 节点名称'),
+            (3, {'ground': ['Floor', 'Floor']}, None, 'glTF 节点名称'),
+            (3, {'ground': 'Floor'}, None, 'glTF 节点名称'),
+        ]
+        for version, extra, terrain, message in cases:
+            with self.subTest(message=message, extra=extra, terrain=terrain), tempfile.TemporaryDirectory() as tmp:
+                root = write_package(Path(tmp), schema_version=version)
+                add_files(root, {'models/arena.glb': quad_glb('Floor', 3, -5, 5, 5, 15)},
+                          lambda m: (m['objects'].append(dict(floor, **extra)), m['terrain'].update(terrain or {})))
+                with self.assertRaisesRegex(P.MapPackageError, message):
+                    P.load(root)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = write_package(Path(tmp), schema_version=3)
+            add_files(root, {}, lambda m: m['objects'].append(
+                {'native_model': 'mdrs\\0001.mod', 'position': [0, 0, 0], 'rotation_y': 0, 'ground': True}))
+            with self.assertRaisesRegex(P.MapPackageError, '只适用于包内模型'):
+                P.load(root)
 
     def test_mission_compile_links_spawn_mirrors_and_lays_out_objective_text(self):
         with tempfile.TemporaryDirectory() as tmp:

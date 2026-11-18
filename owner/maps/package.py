@@ -114,6 +114,7 @@ class MapObject:
     only: str = ''                       # '' | 'pvp' | 'mission'
     initially_hidden: bool = False
     block: NativeBlock | None = None
+    ground: bool | tuple[str, ...] = False   # v3: True (every mesh) or glTF node names whose top surface is walkable
 
 
 @dataclass
@@ -170,6 +171,7 @@ class Package:
     bgm_native: str = ''
     bgm_file: str = ''
     boundary_lines: bool = True     # paint the play area / movable area edges on the ground
+    terrain_render: bool = True     # v3: False hides the height-map terrain; models provide the visible ground
     files: dict[str, str] = field(default_factory=dict)
     launch_pads: list[LaunchPad] = field(default_factory=list)
 
@@ -365,6 +367,11 @@ def load(root: Path | str) -> Package:
     sky = {'zenith': _colour(sky.get('zenith', [0.25, 0.45, 0.85]), 'terrain.sky.zenith'),
            'horizon': _colour(sky.get('horizon', [0.78, 0.86, 0.95]), 'terrain.sky.horizon'),
            'ground': _colour(sky.get('ground', [0.55, 0.55, 0.52]), 'terrain.sky.ground')}
+    terrain_render = terrain.get('render', True)
+    if not isinstance(terrain_render, bool):
+        _fail('terrain.render 必须是布尔值')
+    if version < 3 and 'render' in terrain:
+        _fail('terrain.render 需要 schema_version=3')
     play = terrain.get('play_area') or {}
     play_x = _number(play.get('half_x', half * 0.5), 'terrain.play_area.half_x', 512, half)
     play_z = _number(play.get('half_z', half * 0.5), 'terrain.play_area.half_z', 512, half)
@@ -381,12 +388,13 @@ def load(root: Path | str) -> Package:
             _fail(f'{what} 必须是对象')
         common_fields = {'position', 'rotation_y', 'scale', 'model', 'native_model', 'collision', 'only'}
         semantic_fields = {'id', 'initially_hidden', 'block'}
-        allowed_fields = common_fields | (semantic_fields if version >= 2 else set())
-        unknown = set(row) - allowed_fields
+        unknown = set(row) - common_fields - semantic_fields - {'ground'}
         if unknown:
             _fail(f'{what} 含未知字段：' + '、'.join(sorted(unknown)))
         if version < 2 and set(row) & semantic_fields:
             _fail(f'{what} 的命名物件语义需要 schema_version=2')
+        if version < 3 and 'ground' in row:
+            _fail(f'{what}.ground 需要 schema_version=3')
         position = _vector(row.get('position'), 3, what + '.position', half * 2)
         if abs(position[0]) > half or abs(position[2]) > half:
             _fail(f'{what} 位于地形之外')
@@ -437,6 +445,17 @@ def load(root: Path | str) -> Package:
             obj.block = NativeBlock(template=template, name=display_name, hp=hp)
         elif obj.initially_hidden:
             _fail(f'{what}.initially_hidden 只适用于 block 物件')
+        ground = row.get('ground', False)
+        if ground is not False:
+            if not obj.model or obj.block is not None:
+                _fail(f'{what}.ground 只适用于包内模型，不能用于原生模型或 block 物件')
+            if ground is True:
+                obj.ground = True
+            elif (isinstance(ground, list) and 1 <= len(ground) <= 64 and len(set(ground)) == len(ground)
+                  and all(isinstance(n, str) and n.strip() and len(n) <= 128 for n in ground)):
+                obj.ground = tuple(ground)
+            else:
+                _fail(f'{what}.ground 必须是 true 或 1..64 个不重复的 glTF 节点名称')
         objects.append(obj)
 
     raw_spawns = m.get('spawns')
@@ -500,4 +519,5 @@ def load(root: Path | str) -> Package:
                    fog_start=fog_start, fog_end=fog_end, sky=sky, play_half_x=play_x, play_half_z=play_z,
                    ceiling=ceiling, objects=objects, spawns=spawns, sectors=sectors, item_patterns=patterns,
                    preview=preview, minimap=minimap, bgm_native=bgm_native, bgm_file=bgm_file,
-                   boundary_lines=boundary_lines, files=checked, launch_pads=launch_pads)
+                   boundary_lines=boundary_lines, terrain_render=terrain_render, files=checked,
+                   launch_pads=launch_pads)

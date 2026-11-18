@@ -231,6 +231,62 @@ class _Terrain:
         values = _grid_image(_open(package.read(package.height_image), 'terrain.height.image'), 'terrain.height.image')
         self.heights = [package.height_min + v * span for v in values]
         self.cell = 2 * package.half_extent / (GRID - 1)
+        self.ground_vertices = 0
+        for index, obj in enumerate(package.objects):
+            if obj.ground:
+                self._sample_ground(index, obj)
+
+    def _sample_ground(self, index: int, obj) -> None:
+        '''Replace the heights under a ground object with the top of its selected meshes (placed like the object).'''
+        what = f'objects[{index}].ground'
+        try:
+            meshes = gltf.load(self.p.read(obj.model), self.p.resolver(obj.model))
+        except gltf.GltfError as error:
+            raise MapCompileError(f'{obj.model}: {error}') from None
+        if obj.ground is not True:
+            names = {mesh.node for mesh in meshes}
+            missing = [name for name in obj.ground if name not in names]
+            if missing:
+                raise MapCompileError(f'{what} 引用的 glTF 节点不存在：' + '、'.join(missing))
+            meshes = [mesh for mesh in meshes if mesh.node in obj.ground]
+        angle = math.radians(obj.rotation_y)
+        sin, cos = math.sin(angle), math.cos(angle)
+        half, cell = self.p.half_extent, self.cell
+        sampled: dict[int, float] = {}
+        for mesh in meshes:
+            # asset space (glTF -Z forward) -> object space (game +Z north) -> world, as the static block is placed
+            world = []
+            for x, y, z in mesh.positions:
+                lx, ly, lz = x * obj.scale[0], y * obj.scale[1], -z * obj.scale[2]
+                world.append((obj.position[0] + lx * cos + lz * sin, obj.position[1] + ly,
+                              obj.position[2] - lx * sin + lz * cos))
+            for a, b, c in mesh.triangles:
+                A, B, C = world[a], world[b], world[c]
+                det = (B[2] - C[2]) * (A[0] - C[0]) + (C[0] - B[0]) * (A[2] - C[2])
+                if abs(det) < 1e-9:
+                    continue                                    # vertical faces carry no walkable surface
+                c0 = max(0, math.ceil((min(A[0], B[0], C[0]) + half) / cell))
+                c1 = min(GRID - 1, math.floor((max(A[0], B[0], C[0]) + half) / cell))
+                r0 = max(0, math.ceil((half - max(A[2], B[2], C[2])) / cell))
+                r1 = min(GRID - 1, math.floor((half - min(A[2], B[2], C[2])) / cell))
+                for r in range(r0, r1 + 1):
+                    z = half - r * cell
+                    for col in range(c0, c1 + 1):
+                        x = -half + col * cell
+                        l1 = ((B[2] - C[2]) * (x - C[0]) + (C[0] - B[0]) * (z - C[2])) / det
+                        l2 = ((C[2] - A[2]) * (x - C[0]) + (A[0] - C[0]) * (z - C[2])) / det
+                        l3 = 1.0 - l1 - l2
+                        if l1 < -1e-7 or l2 < -1e-7 or l3 < -1e-7:
+                            continue
+                        y = l1 * A[1] + l2 * B[1] + l3 * C[1]
+                        i = r * GRID + col
+                        if i not in sampled or y > sampled[i]:
+                            sampled[i] = y
+        if not sampled:
+            raise MapCompileError(f'{what} 选中的网格没有覆盖任何地形格点')
+        for i, y in sampled.items():
+            self.heights[i] = y
+        self.ground_vertices += len(sampled)
 
     def at(self, x: float, z: float) -> float:
         half = self.p.half_extent
@@ -642,6 +698,7 @@ def compile_map(package: Package, *, map_no: int, map_id: int, variant: str = 'p
     builder.set_play_area(package.play_half_x / package.half_extent, package.play_half_z / package.half_extent,
                           height=package.ceiling, show=True)
     t = builder.trn
+    t.props.terrain_render = 1 if package.terrain_render else 0
     view = max(package.fog_end + 1000.0, 9000.0)
     t.props.distance_levels = [(view, package.fog_end, package.fog_start)] * trn_format.DISTANCE_LEVELS
     t.props.skybox_render = 1
@@ -848,6 +905,7 @@ def compile_map(package: Package, *, map_no: int, map_id: int, variant: str = 'p
         out.server['tbl_MapBlocks'] = block_rows
     out.report = {'map_key': package.map_key, 'map_no': map_no, 'map_id': map_id, 'variant': variant,
                   'objects': placed, 'blocks': block_reports, 'launch_pads': pad_reports,
+                  'ground_vertices': terrain.ground_vertices, 'terrain_render': package.terrain_render,
                   'spawns': {k: len(v) for k, v in package.spawns.items()},
                   'item_patterns': {k: len(v) for k, v in package.item_patterns.items()},
                   'trn': _native(trn_name), 'trn_bytes': len(resources[trn_name]), **models.stats}
