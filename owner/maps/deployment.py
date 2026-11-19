@@ -102,7 +102,7 @@ def install_package(client, raw: bytes | Path) -> dict:
                 shutil.rmtree(staging)
 
 
-def _validate_split_overlay(pending, leaves, backend64):
+def _validate_split_overlay(pending, leaves, backend64, runtime_schema):
     parts = {leaf for leaf in leaves if _archive_part(leaf)}
     if not parts:
         overlay = storage.ini_values(pending[PREFIX + 'resource-overlay.ini'].read_bytes())
@@ -123,7 +123,7 @@ def _validate_split_overlay(pending, leaves, backend64):
     paths = part_paths(zpk, count)
     if parts != {p.name for p in paths[1:]}:
         raise ValueError('地图包缺少声明的归档分段')
-    if (overlay.get('schema'), overlay.get('index'), overlay.get('archive')) != ('1', 'resources.zdx', 'resources.zpk'):
+    if (overlay.get('schema'), overlay.get('index'), overlay.get('archive')) != (runtime_schema, 'resources.zdx', 'resources.zpk'):
         raise ValueError('地图归档声明无效')
     index = pending[PREFIX + 'resources.zdx'].read_bytes()
     digest = hashlib.sha256()
@@ -152,7 +152,7 @@ def _install_staged(client, executable, source, staging, backend64):
             raise ValueError('地图包缺少清单、清单过大或文件有重复')
         manifest = json.loads(archive.read('manifest.json'))
         schema = manifest.get('schema_version')
-        if manifest.get('module') != 'map_catalog' or type(schema) is not int or schema not in (1, 2):
+        if manifest.get('module') != 'map_catalog' or type(schema) is not int or schema not in (1, 2, 3):
             raise ValueError('不是地图导入客户端包')
         if schema == 2 and manifest.get('minimum_programme') != '0.7.0':
             raise ValueError('新版地图包的配套程序声明无效')
@@ -185,11 +185,31 @@ def _install_staged(client, executable, source, staging, backend64):
     leaves = {path.rsplit('/', 1)[1] for path in pending if path.startswith('sdgo/mods/map_catalog/')}
     if not REQUIRED <= leaves:
         raise ValueError('地图包缺少必需的内容文件')
-    archive_parts = _validate_split_overlay(pending, leaves, backend64)
+    overlay = pending[PREFIX + 'resource-overlay.ini'].read_bytes()
+    runtime_schema = storage.ini_values(overlay).get('runtime', 'schema', fallback='1')
+    live = schema == 3
+    if runtime_schema != ('2' if live else '1'):
+        raise ValueError('地图包资源后台声明与归档协议不一致')
+    archive_parts = _validate_split_overlay(pending, leaves, backend64, runtime_schema)
     mod_dir = client / 'sdgo/mods/map_catalog'
     if 'mod.ini' not in leaves and not (mod_dir / 'mod.ini').is_file():
         raise ValueError('客户端尚未安装地图导入模块（map_catalog）')
-    if schema == 2:
+    if live:
+        from .bundle import LIVE_WORKER_REQUIREMENT
+        from manager.dependencies import enforce_install
+        from manager.resource_worker import is_x64_manager
+        if manifest.get('requires_runtime') != LIVE_WORKER_REQUIREMENT or manifest.get('minimum_programme') != '0.8.0':
+            raise ValueError('大地图包的运行时依赖声明无效')
+        programme_manifest = pending.get(PREFIX + 'mod.ini', mod_dir / 'mod.ini')
+        if _programme_version(programme_manifest.read_bytes()) < (0, 8, 0):
+            raise ValueError('大地图包需要 map_catalog 0.8.0 或更高版本')
+        worker_dll = client / 'sdgo/mods/resource_worker/resource_worker.dll'
+        if not worker_dll.is_file() or not is_x64_manager(client / 'SDGO Mod Manager.exe'):
+            raise ValueError('请安装同目录的 64 位 Mod Manager 与资源后台 Mod')
+        changes = {name: path.read_bytes() for name, path in pending.items()
+                   if name in (PREFIX + 'manager.json', PREFIX + 'mod.ini', PREFIX + 'resource-overlay.ini')}
+        enforce_install(client, changes, 'client')
+    elif schema == 2:
         programme_manifest = pending.get(PREFIX + 'mod.ini')
         if programme_manifest is None:
             programme_manifest = mod_dir / 'mod.ini'
@@ -199,13 +219,13 @@ def _install_staged(client, executable, source, staging, backend64):
     if gates_path in pending:
         from . import damage_gate_format
         damage_gate_format.decode(pending[gates_path].read_bytes())
-        if schema != 2:
+        if schema not in (2, 3):
             raise ValueError('目标保护需要新版地图包协议，未写入任何文件')
     retreats_path = 'sdgo/mods/map_catalog/retreats.bin'
     if retreats_path in pending:
         from . import retreat_format
         retreat_format.decode(pending[retreats_path].read_bytes())
-        if schema != 2:
+        if schema not in (2, 3):
             raise ValueError('友军撤离需要新版地图包协议，未写入任何文件')
     boundary_path = 'sdgo/mods/map_catalog/boundaries.bin'
     if boundary_path in pending:
@@ -234,7 +254,7 @@ def _install_staged(client, executable, source, staging, backend64):
     receipt = {'module': 'map_catalog', 'revision': manifest.get('revision'), 'maps': manifest.get('maps', []),
                'files': {_target(name): declared[name] for name in sorted(declared)},
                'resources': {'backend_bits': 64 if backend64 else 32, 'archive_bytes': archive_bytes,
-                             'archive_parts': archive_parts}}
+                             'archive_parts': archive_parts, **({'requires_runtime': manifest['requires_runtime']} if live else {})}}
     staged_receipt = staging / 'receipt.json'
     staged_receipt.write_bytes(storage.json_bytes(receipt))
     with unmapped_image(executable):

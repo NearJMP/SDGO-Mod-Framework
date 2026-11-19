@@ -9,6 +9,9 @@
   ],
   "category": "gameplay",
   "provider": "maps",
+  "dependencies": {
+    "optional": [{"id": "resource_worker", "minimum": "1.0.0", "capability": "live_map_resources"}]
+  },
   "settings": [
     {
       "id": "enabled",

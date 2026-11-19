@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "provides": {"live_map_broker": 1},
   "distribution": "public",
   "id": "capsule_catalog",
   "title": "扭蛋机目录",

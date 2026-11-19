@@ -420,6 +420,9 @@ sdgo_add_mod(unit_catalog DESCRIPTION "confirmed unit family content"
                      support/native_resource_overlay/native_resource_overlay.cpp
                      support/native_resource_overlay/native_resource_overlay.def
              FILES symbols.fragment.ini default-presets.json LIBS sdgo_script_registration)
+sdgo_add_mod(resource_worker DESCRIPTION "64-bit live resource worker bridge"
+             SOURCES mods/resource_worker/resource_worker.cpp mods/resource_worker/resource_worker.def)
+target_link_libraries(resource_worker PRIVATE ole32)
 sdgo_add_mod(map_catalog DESCRIPTION "imported maps and missions"
              SOURCES mods/map_catalog/client.cpp
                      support/native_resource_overlay/native_resource_overlay.cpp

@@ -277,6 +277,21 @@ def snapshot(host,source,extras,max_file_bytes=64*1024*1024,include_game_base=Tr
                 want=expected.get('sha256') if isinstance(expected,dict) else expected
                 if updates.digest(files[relative])!=want:raise ValueError('生成资源与服主清单不一致：'+relative)
         receipt=folder/'install-receipt.json'
+        if receipt.is_file() and name=='map_catalog':
+            from owner.maps.deployment import PROGRAM_FILES, _target
+            overlay = folder / 'resource-overlay.ini'
+            if overlay.is_file() and storage.ini_values(overlay.read_bytes()).get('runtime', 'schema', fallback='1') == '2':
+                map_files = json.loads(receipt.read_bytes()).get('files', {})
+                if not isinstance(map_files, dict) or not map_files:
+                    raise ValueError('大地图安装回执缺少资源文件清单')
+                for relative, expected in map_files.items():
+                    if _target('client/' + relative) != relative:
+                        raise ValueError('大地图安装回执含有未登记的资源路径')
+                    if relative.startswith('sdgo/mods/map_catalog/') and Path(relative).name in PROGRAM_FILES:
+                        continue
+                    add(relative)
+                    if updates.digest(files[relative]) != expected:
+                        raise ValueError('地图资源与安装回执不一致：' + relative)
         if receipt.is_file() and name=='unit_catalog':
             programme={'sdgo/mods/unit_catalog/'+leaf for leaf in
                 ('unit_catalog.dll','mod.ini','manager.json','symbols.fragment.ini','default-presets.json')}

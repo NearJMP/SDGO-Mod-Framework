@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "distribution": "public",
+  "id": "resource_worker",
+  "title": "64 位资源后台",
+  "description": "游戏运行时启动同目录的 64 位 Manager 工作进程，按需解压和缓存大地图资源。新版大地图包必须启用。",
+  "hosts": ["client"],
+  "category": "system",
+  "provides": {"live_map_resources": 1},
+  "settings": []
+}

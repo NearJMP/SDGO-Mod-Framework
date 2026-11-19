@@ -49,6 +49,7 @@
     ]
   },
   "runtime_enabled_setting": "enabled",
+  "provides": {"live_map_broker": 1},
   "dependencies": {
     "required": [
       {

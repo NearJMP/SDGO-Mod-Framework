@@ -163,3 +163,6 @@ A PvP map that uses a model as ground. `files` must list the SHA-256 of every pa
 | The room icon has no English name | Compile with Manager 1.16.52 or newer; the name comes from `name.en`. |
 | Registration reports a file larger than 64 MiB | Export glTF Separate, or split the model into several objects. |
 | A spawn is "below the ground" | The ground changed but the spawn heights did not; place them 200 above the new ground. |
+# Large map publications
+
+New map publications over 128 MiB of native archives require the [64-bit live resource worker](client-resource-capacity.md). Enable it in the player profile and distribute the matching Manager and Map Catalogue programmes.

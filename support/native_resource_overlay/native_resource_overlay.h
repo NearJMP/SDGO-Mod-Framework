@@ -49,6 +49,7 @@ namespace sdgo::resource_overlay
         // archiveParts means the single archive at archivePath.
         std::vector<std::wstring> archiveParts;
         uint32_t partChunks = 0;
+        bool requiresWorker = false;
     };
 
     // Parses and authenticates a sealed bundle using the strict domain selected

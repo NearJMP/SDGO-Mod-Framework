@@ -73,7 +73,11 @@ export async function mount(root,ctx){
    if(confirmText&&!confirm(confirmText))return;
    const value=await ctx.request('/api/maps/'+id,{});
    if(value.state)state=value.state;
-   if(id==='build')report(`已编译 ${value.report.maps.length} 张地图，资源归档 ${(value.report.archive_bytes/1048576).toFixed(1)} MiB，${value.report.archive_parts} 段，版本 ${value.report.revision}。`);
+   if(id==='build'){
+    const pack=value.report;
+    const required=pack.requires_runtime?' 此发布包必须启用「64 位资源后台」。':'';
+    report(`已编译 ${pack.maps.length} 张地图，资源归档 ${(pack.archive_bytes/1048576).toFixed(1)} MiB，${pack.archive_parts} 段，版本 ${pack.revision}。${required}`);
+   }
    else if(id==='server/preflight'){const p=value.preflight;report(`新增 ${p.insert} 行、更新 ${p.update} 行、保持 ${p.keep} 行；冲突 ${p.conflicts.length} 处${p.conflicts.length?'：'+p.conflicts.slice(0,4).map(c=>c.table+' '+c.key).join('；'):''}`,p.conflicts.length>0);}
    else if(id==='server/readback')report(value.readback.ok?'服务端行与发布物一致。':`服务端缺 ${value.readback.missing.length} 行、不一致 ${value.readback.differ.length} 行。`,!value.readback.ok);
    else report(value.message||'完成');
@@ -85,7 +89,7 @@ export async function mount(root,ctx){
   if(!picked.path || !confirm('安装到配置的客户端目录？请先关闭该客户端。'))return;
   const value=await ctx.request('/api/maps/install-client',{package:picked.path});
   state=value.state;const resources=value.result.receipt.resources;
-  report(`已通过 ${resources.backend_bits} 位资源导入安装 ${(resources.archive_bytes/1048576).toFixed(1)} MiB，${resources.archive_parts} 段。`);
+  report(`已安装 ${(resources.archive_bytes/1048576).toFixed(1)} MiB，${resources.archive_parts} 段。${value.message}`);
   render();
  },ctx,'ui-btn'));
  actions.append(button('下载客户端包',async()=>{await download(await ctx.fetch('/api/maps/client-package'),'SDGO-MapImport-Client.zip');},ctx,'ui-btn'));

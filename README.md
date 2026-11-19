@@ -110,7 +110,7 @@ Edit and publish server content in SDGO Mod Manager for players to install.
 | [Operator and ability management](docs/operator-assistant.md) <!-- catalog: `operator_catalog`, `operator_catalog_server` --> | Edit operator appearance, abilities, supply drops and shop drafts in Manager; import shareable packs and publish matching content |
 | [AI mech catalog (optional)](docs/ai-catalog.md) <!-- catalog: `ai_catalog` --> | Add the server's sortie-ready units to the AI unit pools |
 | [Announcements](docs/announcements.md) <!-- catalog: `announcements` --> | Show a news digest once at login; optional in-game owner notices by time and event |
-| [Client resource capacity](docs/client-resource-capacity.md) | Configure LAA for DIY clients and import larger map packages through the 64-bit Manager |
+| [Client resource capacity](docs/client-resource-capacity.md) <!-- catalog: `resource_worker` --> | Configure LAA and use the 64-bit live resource worker for large map packages |
 | [New-account starter settings](docs/new-account-profile.md) <!-- catalog: `new_account_profile` --> | Set starting currency, rank and unit gifts for new accounts |
 | [Holiday and birthday gifts](docs/calendar-gifts.md) | Configure unit and item gifts for holidays, birthdays or chosen dates in Manager, delivered to eligible players through Storage |
 

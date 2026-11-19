@@ -85,6 +85,21 @@ def snapshot(host,source,framework,extras=(),personal_settings=(),previous=None,
         if name.endswith(('/mod.ini','/manager.json'))or name.startswith('sdgo/symbols/'):continue
         server_profiles.content_name(name);content[name]=raw
     if 'sdgo/sdgo.ini'in content:shared_files.append('sdgo/sdgo.ini')
+    map_root = 'sdgo/mods/map_catalog/'
+    map_overlay = storage.ini_values(content.get(map_root + 'resource-overlay.ini', b''))
+    if map_overlay.get('runtime', 'schema', fallback='1') == '2':
+        from .dependencies import LIVE_MAP_BROKERS, enforce_install
+        from owner.native_archive import MAX_PARTS, part_paths
+        if not {'map_catalog', 'resource_worker'} <= selected.keys():
+            raise ValueError('大地图发布需要随配置档选择地图导入与 64 位资源后台')
+        count = map_overlay.getint('runtime', 'parts', fallback=1)
+        if not 1 <= count <= MAX_PARTS:
+            raise ValueError('大地图归档分段数无效')
+        archive_files = {map_root + p.name for p in part_paths('resources.zpk', count)}
+        archive_files.update(map_root + name for name in ('catalog.bin', 'resources.zdx'))
+        if not archive_files <= content.keys():
+            raise ValueError('发布清单缺少大地图归档分段或索引，请重新导入完整地图包')
+        enforce_install(root, {}, 'client', strict_dependencies=('resource_worker', *LIVE_MAP_BROKERS))
     if owner_programme:
         from . import owner_programmes
         owner_programmes.binding(owner_programme,source['source_id'])

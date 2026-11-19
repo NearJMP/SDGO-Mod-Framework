@@ -388,7 +388,9 @@ class Maps(Provider):
                     raise ValueError('请选择地图客户端 ZIP 包')
                 result = install_package(self._client(), package)
                 return {'result': result, 'state': self._state(), 'changes_applied': True,
-                        'message': '客户端地图包已安装，重启客户端生效。'}
+                        'message': ('大地图包已安装。启动时需要启用「64 位资源后台」。'
+                                    if result['receipt']['resources'].get('requires_runtime')
+                                    else '客户端地图包已安装，重启客户端生效。')}
             if path == '/api/maps/server/preflight':
                 from owner.maps.workspace import OWNER_KEY
                 plan = self._plan()

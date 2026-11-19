@@ -6,6 +6,7 @@ import configparser
 ID=re.compile(r'[a-z][a-z0-9_-]{0,63}\Z')
 CAP=re.compile(r'[a-z][a-z0-9_.-]{0,95}\Z')
 KINDS=('required','optional','conflicts')
+LIVE_MAP_BROKERS = ('capsule_catalog', 'unit_catalog')
 
 
 def version(value):
@@ -52,6 +53,23 @@ def validate(contract):
 def applies(row,node):
     condition=row.get('when')
     return not condition or node.get('settings',{}).get(condition['setting'])==condition['equals']
+
+
+def with_content(contract, overlay):
+    """Resolve the map package's requirement in the same Mod dependency graph."""
+    if contract.get('id') != 'map_catalog' or not overlay:
+        return contract
+    from .storage import ini_values
+    if ini_values(overlay).get('runtime', 'schema', fallback='1') != '2':
+        return contract
+    from owner.maps.bundle import LIVE_WORKER_REQUIREMENT
+    related = (*LIVE_MAP_BROKERS, LIVE_WORKER_REQUIREMENT['id'])
+    rules = {kind: [row for row in rows if row['id'] not in related]
+             for kind, rows in contract.get('dependencies', {}).items()}
+    rules.setdefault('required', []).append(LIVE_WORKER_REQUIREMENT)
+    rules.setdefault('optional', []).extend({'id': identity, 'capability': 'live_map_broker'}
+                                            for identity in LIVE_MAP_BROKERS)
+    return {**contract, 'dependencies': rules}
 
 
 def issues(nodes):
@@ -117,7 +135,7 @@ def content_files(contract):
     return(retirement or{}).get('content_files',[])
 
 
-def enforce_install(root,changes,role):
+def enforce_install(root,changes,role,*,strict_dependencies=()):
     """Evaluate the actual candidate metadata and settings before file writes."""
     from pathlib import Path
     from . import storage
@@ -141,6 +159,8 @@ def enforce_install(root,changes,role):
                 cfg=storage.ini_values(data);identity=cfg.get('mod','id',fallback=folder.split('/')[-1]);registration=raw(folder+'/manager.json')
                 contract=json.loads(registration)if registration else {'id':identity}
                 validate(contract);contract=copy.deepcopy(contract)
+                if identity == 'map_catalog':
+                    contract = with_content(contract, raw(folder+'/resource-overlay.ini'))
             except(ValueError,KeyError,TypeError,configparser.Error):
                 if not candidate and any(folder+'/'+leaf in changes for leaf in('mod.ini','manager.json')):continue
                 raise
@@ -161,6 +181,9 @@ def enforce_install(root,changes,role):
                            'enabled':enabled,'settings':settings,'contract':contract})
         return result
     before,after=nodes(False),nodes(True);enforce_transition(before,after)
+    errors = [row['message'] for row in issues(after) if row['dependency'] in strict_dependencies]
+    if errors:
+        raise ValueError('；'.join(errors))
     old={n['id']:n for n in before};new={n['id']:n for n in after}
     for identity,node in old.items():
         if not node['enabled']or new.get(identity,{}).get('enabled'):continue

@@ -1,4 +1,5 @@
 #include "native_resource_overlay.h"
+#include "sdgo/resource_worker_abi.h"
 
 #include <windows.h>
 #include <bcrypt.h>
@@ -14,6 +15,17 @@
 
 namespace
 {
+    const SdgoResourceWorkerV1* LiveWorker()
+    {
+        HMODULE module = GetModuleHandleW(L"resource_worker.dll");
+        if (!module) return nullptr;
+        auto get = reinterpret_cast<SdgoGetResourceWorkerV1>(
+            GetProcAddress(module, "SdgoGetLiveResourceWorkerV1"));
+        const auto* worker = get ? get() : nullptr;
+        if (!worker || worker->size < sizeof(*worker) || worker->version != 1 ||
+            !worker->Prepare || !worker->Open) return nullptr;
+        return worker;
+    }
     constexpr uint32_t kBrokerVersion = 1;
     constexpr uint32_t kSchema = 1;
     constexpr uint32_t kChunkSize = 512;
@@ -596,7 +608,7 @@ namespace
         const std::wstring ini = Join(root, configName);
         uint32_t schema = 0;
         if (!ParseUnsigned(IniValue(ini, L"runtime", L"schema"), schema) ||
-            schema != kSchema) {
+            (schema != kSchema && !(schema == 2 && std::strcmp(owner, "map_catalog") == 0))) {
             error = "resource-overlay.ini schema is missing or unsupported";
             return false;
         }
@@ -661,6 +673,7 @@ namespace
         if (!ReadFileLimited(indexPath, kMaxIndexBytes, index, error))
             return false;
         bundle.owner = owner;
+        bundle.requiresWorker = schema == 2;
         bundle.identity = indexHash + ":" + archiveHash;
         bundle.archivePath = partPaths.front();
         if (parts > 1) {
@@ -935,6 +948,7 @@ namespace sdgo::resource_overlay
             std::unordered_map<std::wstring, OverlayEntry> entries;
             std::vector<std::wstring> archiveParts;
             uint32_t partChunks = 0;
+            bool requiresWorker = false;
         };
 
         struct FoundResource
@@ -945,6 +959,7 @@ namespace sdgo::resource_overlay
             std::wstring archivePath;
             uint32_t chunkSize = 0;
             NativeFileInfo info;
+            bool requiresWorker = false;
         };
 
         const SdgoApi* api = nullptr;
@@ -970,6 +985,13 @@ namespace sdgo::resource_overlay
             }
             if (!ReservedOperatorTextureClaim(candidate, error))
                 return false;
+            if (candidate.requiresWorker) {
+                const auto* worker = LiveWorker();
+                if (!worker || !worker->Prepare()) {
+                    error = "this map package requires the enabled 64-bit resource worker and matching Manager";
+                    return false;
+                }
+            }
             AcquireSRWLockExclusive(&lock);
             for (const StoredBundle& existing : bundles) {
                 if (existing.owner == candidate.owner) {
@@ -1000,6 +1022,7 @@ namespace sdgo::resource_overlay
             stored.entries = candidate.entries;
             stored.archiveParts = candidate.archiveParts;
             stored.partChunks = candidate.partChunks;
+            stored.requiresWorker = candidate.requiresWorker;
             bundles.push_back(std::move(stored));
             ReleaseSRWLockExclusive(&lock);
             return true;
@@ -1018,6 +1041,7 @@ namespace sdgo::resource_overlay
                 result.archivePath = bundle.archivePath;
                 result.chunkSize = bundle.chunkSize;
                 result.info = found->second.info;
+                result.requiresWorker = bundle.requiresWorker;
                 // The native stream reads chunk offsets inside one file.
                 result.found = ResolveArchivePart(bundle.archiveParts, bundle.partChunks,
                                                   result.archivePath, result.info);
@@ -1033,7 +1057,23 @@ namespace sdgo::resource_overlay
             if (TryMainName(nativeName, path)) {
                 FoundResource resource = Find(path);
                 if (resource.found) {
-                    void* archive = open(resource.archivePath.c_str(), L"rb");
+                    void* archive = nullptr;
+                    if (resource.requiresWorker) {
+                        const auto* worker = LiveWorker();
+                        uint32_t bytes = 0;
+                        archive = worker ? worker->Open(resource.path.c_str(), open, &bytes) : nullptr;
+                        if (archive) {
+                            resource.info = {};
+                            resource.info.words[0] = bytes;
+                            resource.info.words[2] = (bytes + resource.chunkSize - 1) / resource.chunkSize;
+                        } else {
+                            // The mounted bundle already passed its hard dependency gate.
+                            // Preserve its exact assets if the worker drops during this session.
+                            api->Log(mod, SDGO_LOG_WARN, "live resource unavailable for %ls; retrying sealed original",
+                                     resource.path.c_str());
+                        }
+                    }
+                    if (!archive) archive = open(resource.archivePath.c_str(), L"rb");
                     if (archive) {
                         void* storage = allocate(0x7c);
                         if (storage) {

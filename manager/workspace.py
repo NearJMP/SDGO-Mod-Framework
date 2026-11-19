@@ -159,12 +159,17 @@ class Workspace:
             yield
 
     def dependency_nodes(self):
+        from .dependencies import with_content
         nodes=[]
         for host in self.settings['hosts']:
             roots={tree:Path(host['path'])/'sdgo'/tree for tree in ('mods','owner-mods','local-mods')}
             contracts={tree:registry.load(path)for tree,path in roots.items()}
             for mod in self._installed(host,True):
                 root=self._mod_directory(host,mod['id']);contract=contracts[root.parent.name].get(mod['id'],{})
+                if mod['id'] == 'map_catalog':
+                    overlay = root/'resource-overlay.ini'
+                    if overlay.is_file():
+                        contract = with_content({'id': mod['id'], **contract}, overlay.read_bytes())
                 values={};files={}
                 for field in contract.get('settings',[]):
                     name=field['file']
@@ -244,6 +249,10 @@ class Workspace:
         if host['role'] not in contract.get('hosts', []):
             raise ValueError('此 Mod 不属于所选宿主')
         contract=copy.deepcopy(contract)
+        overlay = mod_dir / 'resource-overlay.ini'
+        if mod_id == 'map_catalog' and overlay.is_file():
+            from .dependencies import with_content
+            contract = with_content(contract, overlay.read_bytes())
         contract['settings']=[field for field in contract.get('settings',[]) if field['audience']=='user' or self.mode=='developer' or internal]
         files = {}
         values = {}

@@ -73,6 +73,12 @@ def serve(args,sibling=None,local_client=False):
 
 def main(argv=None):
     effective=sys.argv[1:] if argv is None else argv
+    if effective[:1] == ['--resource-worker']:
+        from manager.resource_worker import run
+        try:
+            return run(*effective[1:]) if len(effective) == 3 else 2
+        except (OSError, ValueError, KeyError):
+            return 1
     if effective[:1]==['--launch-game']:
         from manager import launch,launch_ui
         parser=argparse.ArgumentParser(description='Verify the bound runtime before starting the game')

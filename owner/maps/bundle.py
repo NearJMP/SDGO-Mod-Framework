@@ -32,6 +32,8 @@ LEGACY_PLAN_SCHEMAS = frozenset({'sdgo.map-import-server-plan/1', 'sdgo.map-impo
 OVERLAY_DOMAINS = {'trns': '.trn', 'sol': '.sol', 'mdrs': '.mod', 'anrs': '.ani', 'txrs': '.txr', 'fxrs': '.zfx',
                    'sprs': '.spr', 'sdrs': '.zsd'}
 PART_CHUNKS = 96 * 1024**2 // (CHUNK_SIZE + 8)
+LIVE_WORKER_THRESHOLD = 128 * 1024**2
+LIVE_WORKER_REQUIREMENT = {'id': 'resource_worker', 'minimum': '1.0.0', 'capability': 'live_map_resources'}
 TABLE_KEYS = {
     'tbl_MapFile': ('MapNo',),
     'tbl_MapData': ('MapID',),
@@ -192,7 +194,8 @@ def build_publication(builds: list[CompiledMap], output: Path, *, program: dict[
         staging = Path(directory)
         zdx, archive = build_archive_file(resources, allowed_overlay, staging / 'resources.zpk', PART_CHUNKS)
         parts = archive.get('parts', [{'name': 'resources.zpk', 'sha256': archive['archive_sha256']}])
-        overlay = ('[runtime]\nschema=1\nindex=resources.zdx\nindex_sha256=' + hashlib.sha256(zdx).hexdigest() +
+        live = archive['archive_bytes'] > LIVE_WORKER_THRESHOLD
+        overlay = (f'[runtime]\nschema={2 if live else 1}\nindex=resources.zdx\nindex_sha256=' + hashlib.sha256(zdx).hexdigest() +
                    '\narchive=resources.zpk\narchive_sha256=' + archive['archive_sha256'] + '\n')
         if len(parts) > 1:
             overlay += f'parts={len(parts)}\npart_chunks={archive["part_chunks"]}\n'
@@ -203,10 +206,13 @@ def build_publication(builds: list[CompiledMap], output: Path, *, program: dict[
             name = PREFIX + part['name']
             files[name] = staging / part['name']
             hashes[name] = part['sha256']
-        manifest = {'module': MODULE, 'schema_version': 2 if advanced else 1, 'revision': revision, 'maps': maps,
+        manifest = {'module': MODULE, 'schema_version': 3 if live else 2 if advanced else 1, 'revision': revision, 'maps': maps,
                     'files': dict(sorted(hashes.items())), 'owned_resources': sorted(resources),
                     'loose': sorted('client/' + n for n in loose), 'restart_required': True}
-        if advanced:
+        if live:
+            manifest['minimum_programme'] = '0.8.0'
+            manifest['requires_runtime'] = LIVE_WORKER_REQUIREMENT
+        elif advanced:
             manifest['minimum_programme'] = '0.7.0'
         files['manifest.json'] = json.dumps(manifest, ensure_ascii=False, indent=2).encode('utf-8')
         candidate = staging / client_zip.name
@@ -234,4 +240,5 @@ def build_publication(builds: list[CompiledMap], output: Path, *, program: dict[
         update_digest(digest, source)
     return {'revision': revision, 'client_zip': str(client_zip),
             'client_zip_sha256': digest.hexdigest(), 'archive_bytes': archive['archive_bytes'], 'archive_parts': len(parts),
+            'requires_runtime': LIVE_WORKER_REQUIREMENT if live else None,
             'server_plan': str(output / 'server-plan.json'), 'records': len(rows), 'resources': len(resources)}
