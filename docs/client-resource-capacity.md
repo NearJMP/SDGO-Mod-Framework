@@ -8,7 +8,7 @@ On 64-bit Windows, LAA lets the 32-bit game use up to 4 GiB of virtual address s
 
 ## Live resource worker
 
-New map publications above 128 MiB of native archives declare `resource_worker` 1.0.0 and `map_catalog` 0.8.0 as requirements. Mod Manager 1.16.55 or later is required on the playing client. Mod Manager shows the requirement on compilation and checks it before installation. Keep the worker enabled in the client profile when distributing one of these packages.
+New map publications above 128 MiB of native archives declare `resource_worker` 1.0.0 and `map_catalog` 0.8.0 as requirements. Mod Manager 1.16.56 or later is required on the playing client. Mod Manager shows the requirement on compilation and checks it before installation. Keep the worker enabled in the client profile when distributing one of these packages.
 
 | Component | Relationship |
 | --- | --- |
