@@ -24,6 +24,22 @@ public:
         kRoom = 3,
         kManagement = 4,
     };
+    enum class Destination { None, MyRoom, Capsule, Shop };
+
+    struct DestinationControl {
+        const wchar_t* name;
+        size_t offset;
+        const char* label;
+    };
+    static DestinationControl ControlFor(Destination destination)
+    {
+        switch(destination) {
+        case Destination::MyRoom: return {L"MyRoomRadio",0x54,"MyRoomRadio"};
+        case Destination::Capsule: return {L"CapsuleRoomRadio",0x4C,"CapsuleRoomRadio"};
+        case Destination::Shop: return {L"ShopRoomRadio",0x50,"ShopRoomRadio"};
+        default: return {nullptr,0,"off"};
+        }
+    }
 
     enum Result : uint32_t
     {
@@ -127,6 +143,20 @@ public:
     }
 
     void RepeatManagementClicks(bool enabled) { repeatManagement_=enabled; }
+
+    bool DestinationReady(Destination destination) const
+    {
+        __try {
+            if (destination==Destination::MyRoom) return native_->AppState()==5;
+            if (destination==Destination::Capsule) return ReadTarget(kCapsule).ready;
+            if (destination!=Destination::Shop || native_->AppState()!=9) return false;
+            auto* room=static_cast<uint8_t*>(Resolve(L"roommgr"));
+            auto* table=Symbol<void*>("flow.shop_room_manager_vtable");
+            if (!room || !table || *reinterpret_cast<void**>(room)!=table) return false;
+            auto* root=*reinterpret_cast<uint8_t**>(room+0x64);
+            return root && root[kControlVisible];
+        } __except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+    }
 
     Result Poll(
         Target target,
@@ -413,15 +443,17 @@ private:
         return service;
     }
 
-    TargetState ReadTarget() const
+    TargetState ReadTarget() const { return ReadTarget(target_); }
+
+    TargetState ReadTarget(Target target) const
     {
         TargetState result = {};
         const wchar_t* name =
-            target_ == kManagement ? L"UnitIndexingCubbyhole" : target_ == kCatalog
+            target == kManagement ? L"UnitIndexingCubbyhole" : target == kCatalog
                 ? L"UnitCatalogList"
                 : L"roommgr";
         void* expected =
-            target_ == kManagement ? managementVtable_ : target_ == kCatalog
+            target == kManagement ? managementVtable_ : target == kCatalog
                 ? catalogVtable_
                 : capsuleVtable_;
         uint8_t* service =
@@ -433,14 +465,14 @@ private:
             return result;
         }
         result.present = true;
-        if (target_ == kManagement) {
+        if (target == kManagement) {
             auto* root = *reinterpret_cast<uint8_t**>(service + 0x44);
             result.rootVisible = root && root[kControlVisible];
             for (unsigned index=0;index<36;++index)
                 if (*reinterpret_cast<const uint16_t*>(service + 0x7AC + index*2))
                     ++result.visibleItems;
             result.ready = result.rootVisible && result.visibleItems;
-        } else if (target_ == kCatalog) {
+        } else if (target == kCatalog) {
             uint8_t* root =
                 *reinterpret_cast<uint8_t**>(
                     service + kCatalogRoot);

@@ -827,6 +827,24 @@
       "section": "settings",
       "audience": "developer",
       "activation": "restart_required"
+    },
+    {
+      "id": "early_management_destination",
+      "key": "EarlyManagementDestination",
+      "label": "分页中的底栏切换（封存测试）",
+      "description": "机体管理测试在首批库存分页到达后，经底栏进入所选页面。",
+      "type": "choice",
+      "default": "off",
+      "options": [
+        "off",
+        "my_room",
+        "capsule",
+        "shop"
+      ],
+      "file": "mod.ini",
+      "section": "settings",
+      "audience": "developer",
+      "activation": "restart_required"
     }
   ],
   "presentation": "configurable",

@@ -135,7 +135,7 @@ LoadingNavigationActions loadingNavigation;
 LoadingNavigationActions::Target earlyNavigationTarget =
     LoadingNavigationActions::kOff;
 bool earlyNavigationBeforeInventory = false;
-bool earlyManagementToHangar = false;
+LoadingNavigationActions::Destination earlyManagementDestination = LoadingNavigationActions::Destination::None;
 BlueprintActions blueprint;
 BlueprintActions::Config blueprintConfig{};
 std::vector<uint32_t> nativeIdProbeIds;
@@ -519,8 +519,19 @@ bool LoadPlan() {
     earlyNavigationBeforeInventory=earlyNavigationTiming==1;
     const int crossManagement=GetPrivateProfileIntW(L"settings",L"EarlyManagementToHangar",0,blueprintIni.c_str());
     if(crossManagement<0 || crossManagement>1)return false;
-    earlyManagementToHangar=crossManagement==1;
-    if(earlyManagementToHangar && (!earlyNavigationBeforeInventory ||
+    wchar_t destinationName[16]{};
+    const DWORD destinationLength=GetPrivateProfileStringW(L"settings",L"EarlyManagementDestination",L"off",
+        destinationName,static_cast<DWORD>(std::size(destinationName)),blueprintIni.c_str());
+    if (!destinationLength || destinationLength>=std::size(destinationName)-1) return false;
+    using Destination=LoadingNavigationActions::Destination;
+    if (!wcscmp(destinationName,L"off"))
+        earlyManagementDestination=crossManagement ? Destination::MyRoom : Destination::None;
+    else if (crossManagement) return false;
+    else if (!wcscmp(destinationName,L"my_room")) earlyManagementDestination=Destination::MyRoom;
+    else if (!wcscmp(destinationName,L"capsule")) earlyManagementDestination=Destination::Capsule;
+    else if (!wcscmp(destinationName,L"shop")) earlyManagementDestination=Destination::Shop;
+    else return false;
+    if(earlyManagementDestination!=Destination::None && (!earlyNavigationBeforeInventory ||
        earlyNavigationTarget!=LoadingNavigationActions::kManagement))return false;
     if(earlyNavigationBeforeInventory &&
        earlyNavigationTarget==LoadingNavigationActions::kOff)return false;
@@ -2314,7 +2325,7 @@ int __cdecl Onboarding(const SdgoGameTestContextV1* context) {
             }
         }
         if(earlyPhase==kEarlyAwaitingClick) {
-            loadingNavigation.RepeatManagementClicks(!earlyManagementToHangar);
+            loadingNavigation.RepeatManagementClicks(earlyManagementDestination==LoadingNavigationActions::Destination::None);
             if(inventory.initialized) {
                 context->Assert(0,
                     "the genuine UnitInfo +0x20 ready flag became set before the enabled navigation control could be invoked; this run missed the pre-inventory timing window");
@@ -2340,29 +2351,42 @@ int __cdecl Onboarding(const SdgoGameTestContextV1* context) {
             }
         }
         if(earlyPhase==kEarlyAwaitingTarget) {
-            if(earlyManagementToHangar) {
-                static bool crossed=false,reopened=false;
+            using Destination=LoadingNavigationActions::Destination;
+            if(earlyManagementDestination!=Destination::None) {
+                static bool crossed=false,arrived=false,returnClicked=false,reopened=false;
+                const auto target=LoadingNavigationActions::ControlFor(earlyManagementDestination);
                 const bool complete=inventory.initialized && inventory.scan_complete;
                 if(!crossed && !inventory.initialized && inventory.slot_capacity &&
                    (inventory.last_uid_cursor_low || inventory.last_uid_cursor_high)) {
-                    const auto click=hangarNavigation.ClickBottomRadio(L"MyRoomRadio",0x54);
+                    const auto click=hangarNavigation.ClickBottomRadio(target.name,target.offset);
                     if(click==HangarNavigation::kReady) {
                         crossed=true;
                         char message[220];sprintf_s(message,
-                            "mid-inventory MyRoomRadio invoked after a real page: ready=%u capacity=%u cursor=%u:%u app=%u",
-                            inventory.initialized,inventory.slot_capacity,inventory.last_uid_cursor_high,
+                            "mid-inventory %s invoked after a real page: ready=%u capacity=%u cursor=%u:%u app=%u",
+                            target.label,inventory.initialized,inventory.slot_capacity,inventory.last_uid_cursor_high,
                             inventory.last_uid_cursor_low,actions.AppState());context->Observe(message);
                     }
                 }
                 if(!crossed && complete) {
-                    context->Assert(0,"the mid-page MyRoomRadio timing window was not reached");
+                    context->Assert(0,"the mid-page radio timing window was not reached");
                     return SDGO_GAME_TEST_FAIL;
                 }
-                if(!crossed || !complete || actions.AppState()!=5)return SDGO_GAME_TEST_WAIT;
+                if(!crossed || !complete)return SDGO_GAME_TEST_WAIT;
+                if(!arrived) {
+                    if(!loadingNavigation.DestinationReady(earlyManagementDestination)) return SDGO_GAME_TEST_WAIT;
+                    arrived=true;
+                    char message[160];sprintf_s(message,"the deferred %s destination opened after real inventory completion",target.label);
+                    context->Observe(message);
+                }
+                if(earlyManagementDestination!=Destination::MyRoom && actions.AppState()!=6) {
+                    if(!returnClicked)
+                        returnClicked=hangarNavigation.ClickBottomRadio(L"GameRoomRadio",0x48)==HangarNavigation::kReady;
+                    return SDGO_GAME_TEST_WAIT;
+                }
                 if(!reopened) {
                     if(hangarNavigation.ClickOperatorMenuButton(L"UnitBtn",0x80)!=HangarNavigation::kReady)
                         return SDGO_GAME_TEST_WAIT;
-                    reopened=true;context->Observe("reopened the genuine management control after the mid-page MyRoom transition and real inventory completion");
+                    reopened=true;context->Observe("reopened the genuine management control after the mid-page transition and real inventory completion");
                     return SDGO_GAME_TEST_WAIT;
                 }
             }
@@ -2474,7 +2498,8 @@ int __cdecl Onboarding(const SdgoGameTestContextV1* context) {
         }
         if(earlyPhase==kEarlyComplete &&
            earlyGuardRead==kInventoryGuardRead &&
-           earlyNavigationTarget!=LoadingNavigationActions::kManagement &&
+           (earlyNavigationTarget!=LoadingNavigationActions::kManagement ||
+            earlyManagementDestination!=LoadingNavigationActions::Destination::None) &&
            !earlyGuardTriggerAsserted) {
             if(!observeEarlyGuard())
                 return SDGO_GAME_TEST_FAIL;
@@ -2494,7 +2519,7 @@ int __cdecl Onboarding(const SdgoGameTestContextV1* context) {
                 earlyNavigationTarget==
                     LoadingNavigationActions::kCatalog
                     ? "the candidate guard deferred the genuine unit-catalog request until inventory readiness"
-                    : "the candidate guard deferred the genuine capsule or room transition until inventory readiness");
+                    : "the candidate guard deferred the genuine page transition until inventory readiness");
             if(!guardTriggered)
                 return SDGO_GAME_TEST_FAIL;
             earlyGuardTriggerAsserted=true;

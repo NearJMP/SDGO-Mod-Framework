@@ -80,6 +80,12 @@ class UnitScenarioTests(unittest.TestCase):
                        {'early_navigation_before_inventory':'room'}):
             with self.assertRaises(ValueError):scope.bind(value|change,context)
 
+        for destination in ('my_room','capsule','shop'):
+            plan={'schema':1,'early_navigation_before_inventory':'management','management_destination':destination}
+            bound=scope.bind(plan,context)['unit_scenario']
+            self.assertEqual(scope.settings(bound)['EarlyManagementDestination'],destination)
+            with self.assertRaises(ValueError):scope.bind(plan|{'management_to_hangar':True},context)
+
     def test_explicit_encyclopedia_target_is_sealed_separately_from_owned_unit(self):
         context={'pages_only':True,'play_unit_uid':839}
         value={'schema':1,'presentation_target':22150}
