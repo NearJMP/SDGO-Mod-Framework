@@ -122,6 +122,7 @@ void RunInventoryGuardCases(HMODULE dll) {
     inventoryStarterBusy = false; InvokeInventoryTail();
     Check(inventoryMenuCalls == stateFiveBefore + 1, "clearing native callback busy state resumes the deferred action once");
     stage(6, 0, 0); const unsigned prior = inventoryMenuCalls;
+    Put(pendingInventory.data(), 0x18, uint64_t{0});
     menu(inventoryMenu.data(), nullptr, payload, inventoryControls[3].data());
     Check(inventoryMenuCalls == prior + 1 && observedInventoryPayload == payload,
           "MyRoom bootstrap remains native even while slot capacity is pending");
@@ -169,11 +170,24 @@ void RunInventoryGuardCases(HMODULE dll) {
     pendingInventory[0x20] = 1; InvokeInventoryTail();
     Check(inventoryMenuCalls == prior + 6 && inventoryCatalogCalls == 2,
           "the latest native menu choice cancels the earlier pending catalog");
+    stage(6, 1200, 0);
+    Put(pendingInventory.data(), 0x18, uint64_t{1698});
+    const auto beforePage = pendingInventory;
+    const unsigned beforeMyRoom = inventoryMenuCalls;
+    menu(inventoryMenu.data(), nullptr, payload, inventoryControls[3].data());
+    InvokeInventoryTail();
+    Check(inventoryMenuCalls == beforeMyRoom && pendingInventory == beforePage,
+          "entering MyRoom during pagination cannot restart the native request");
+    pendingInventory[0x20] = 1;
+    InvokeInventoryTail(); InvokeInventoryTail();
+    Check(inventoryMenuCalls == beforeMyRoom + 1 &&
+          observedInventoryControl == inventoryControls[3].data(),
+          "the original MyRoom action resumes once after inventory completes");
     using Status = int(__cdecl*)(SdgoNativeDataGuardStatusV6*);
     auto status = reinterpret_cast<Status>(GetProcAddress(dll, "SdgoNativeDataGuardGetStatusV6"));
     SdgoNativeDataGuardStatusV6 observed{sizeof(observed), 6};
-    Check(status && status(&observed) && observed.deferred_inventory_transition_calls >= 9 &&
-          observed.resumed_inventory_transitions == 9 && observed.deferred_inventory_catalog_requests == 5 &&
+    Check(status && status(&observed) && observed.deferred_inventory_transition_calls >= 10 &&
+          observed.resumed_inventory_transitions == 10 && observed.deferred_inventory_catalog_requests == 5 &&
           observed.resumed_inventory_catalog_requests == 2 && observed.cancelled_inventory_catalog_requests == 3,
           "additive read-only observer reports actual deferred actions, resumes and cancellations");
 }

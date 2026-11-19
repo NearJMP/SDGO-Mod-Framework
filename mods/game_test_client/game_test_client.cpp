@@ -135,6 +135,7 @@ LoadingNavigationActions loadingNavigation;
 LoadingNavigationActions::Target earlyNavigationTarget =
     LoadingNavigationActions::kOff;
 bool earlyNavigationBeforeInventory = false;
+bool earlyManagementToHangar = false;
 BlueprintActions blueprint;
 BlueprintActions::Config blueprintConfig{};
 std::vector<uint32_t> nativeIdProbeIds;
@@ -507,6 +508,7 @@ bool LoadPlan() {
         !wcscmp(earlyNavigation,L"catalog") ? LoadingNavigationActions::kCatalog :
         !wcscmp(earlyNavigation,L"capsule") ? LoadingNavigationActions::kCapsule :
         !wcscmp(earlyNavigation,L"room") ? LoadingNavigationActions::kRoom :
+        !wcscmp(earlyNavigation,L"management") ? LoadingNavigationActions::kManagement :
         LoadingNavigationActions::kOff;
     if(earlyNavigationTarget==LoadingNavigationActions::kOff &&
        wcscmp(earlyNavigation,L"off"))return false;
@@ -515,6 +517,11 @@ bool LoadPlan() {
         blueprintIni.c_str());
     if(earlyNavigationTiming<0 || earlyNavigationTiming>1)return false;
     earlyNavigationBeforeInventory=earlyNavigationTiming==1;
+    const int crossManagement=GetPrivateProfileIntW(L"settings",L"EarlyManagementToHangar",0,blueprintIni.c_str());
+    if(crossManagement<0 || crossManagement>1)return false;
+    earlyManagementToHangar=crossManagement==1;
+    if(earlyManagementToHangar && (!earlyNavigationBeforeInventory ||
+       earlyNavigationTarget!=LoadingNavigationActions::kManagement))return false;
     if(earlyNavigationBeforeInventory &&
        earlyNavigationTarget==LoadingNavigationActions::kOff)return false;
     captureNativeFrames=GetPrivateProfileIntW(L"settings",L"CaptureNativeFrames",0,
@@ -2307,6 +2314,7 @@ int __cdecl Onboarding(const SdgoGameTestContextV1* context) {
             }
         }
         if(earlyPhase==kEarlyAwaitingClick) {
+            loadingNavigation.RepeatManagementClicks(!earlyManagementToHangar);
             if(inventory.initialized) {
                 context->Assert(0,
                     "the genuine UnitInfo +0x20 ready flag became set before the enabled navigation control could be invoked; this run missed the pre-inventory timing window");
@@ -2332,6 +2340,32 @@ int __cdecl Onboarding(const SdgoGameTestContextV1* context) {
             }
         }
         if(earlyPhase==kEarlyAwaitingTarget) {
+            if(earlyManagementToHangar) {
+                static bool crossed=false,reopened=false;
+                const bool complete=inventory.initialized && inventory.scan_complete;
+                if(!crossed && !inventory.initialized && inventory.slot_capacity &&
+                   (inventory.last_uid_cursor_low || inventory.last_uid_cursor_high)) {
+                    const auto click=hangarNavigation.ClickBottomRadio(L"MyRoomRadio",0x54);
+                    if(click==HangarNavigation::kReady) {
+                        crossed=true;
+                        char message[220];sprintf_s(message,
+                            "mid-inventory MyRoomRadio invoked after a real page: ready=%u capacity=%u cursor=%u:%u app=%u",
+                            inventory.initialized,inventory.slot_capacity,inventory.last_uid_cursor_high,
+                            inventory.last_uid_cursor_low,actions.AppState());context->Observe(message);
+                    }
+                }
+                if(!crossed && complete) {
+                    context->Assert(0,"the mid-page MyRoomRadio timing window was not reached");
+                    return SDGO_GAME_TEST_FAIL;
+                }
+                if(!crossed || !complete || actions.AppState()!=5)return SDGO_GAME_TEST_WAIT;
+                if(!reopened) {
+                    if(hangarNavigation.ClickOperatorMenuButton(L"UnitBtn",0x80)!=HangarNavigation::kReady)
+                        return SDGO_GAME_TEST_WAIT;
+                    reopened=true;context->Observe("reopened the genuine management control after the mid-page MyRoom transition and real inventory completion");
+                    return SDGO_GAME_TEST_WAIT;
+                }
+            }
             const auto result=loadingNavigation.Poll(
                 earlyNavigationTarget,
                 context->elapsed_ms,
@@ -2353,6 +2387,24 @@ int __cdecl Onboarding(const SdgoGameTestContextV1* context) {
                 }
             } else if(result==
                       LoadingNavigationActions::kTargetReady) {
+                if(earlyNavigationTarget==LoadingNavigationActions::kManagement && captureNativeFrames) {
+                    static bool managementFrameRequested=false;
+                    if(!managementFrameRequested) {
+                        managementFrameRequested=quietGraphics.CaptureNextFrame(
+                            (sdgo_test::directory+L"\\pre-inventory-management.bmp").c_str());
+                        context->Assert(managementFrameRequested,
+                            "the genuine management page accepts a native backbuffer capture");
+                        if(!managementFrameRequested)return SDGO_GAME_TEST_FAIL;
+                        return SDGO_GAME_TEST_WAIT;
+                    }
+                    if(quietGraphics.CaptureFrameResult()==E_PENDING)return SDGO_GAME_TEST_WAIT;
+                    context->Assert(SUCCEEDED(quietGraphics.CaptureFrameResult()),
+                        "the genuine early management page backbuffer was captured");
+                    if(FAILED(quietGraphics.CaptureFrameResult()))return SDGO_GAME_TEST_FAIL;
+                    char message[128];sprintf_s(message,"management enabled-control callbacks=%u",
+                        static_cast<unsigned>(loadingNavigation.State().native_click_count));
+                    context->Observe(message);
+                }
                 context->Assert(inventoryFinished,
                     "the native target became ready only after the original paginated inventory stream set UnitInfo +0x20 and completed its read-only scan");
                 if(!inventoryFinished)return SDGO_GAME_TEST_FAIL;
@@ -2422,6 +2474,7 @@ int __cdecl Onboarding(const SdgoGameTestContextV1* context) {
         }
         if(earlyPhase==kEarlyComplete &&
            earlyGuardRead==kInventoryGuardRead &&
+           earlyNavigationTarget!=LoadingNavigationActions::kManagement &&
            !earlyGuardTriggerAsserted) {
             if(!observeEarlyGuard())
                 return SDGO_GAME_TEST_FAIL;
@@ -7093,7 +7146,7 @@ SDGO_MOD_ENTRY {
     if(!nativePopupProbe.Install(api,mod))return 0;
     if((earlyNavigationBeforeInventory || ocAllocateStat>=0 ||
         (randomLoadout && api->SettingInt(mod,"LogNativePacketIngress",0)!=0)) &&
-       !nativePacketIngressProbe.Install(api,mod))return 0;
+       !nativePacketIngressProbe.InstallAtSite(api,mod))return 0;
     getStartStatus = reinterpret_cast<SdgoPvpAiClientGetStartStatusV1Fn>(GetProcAddress(GetModuleHandleW(L"match_ai.dll"), SDGO_PVP_AI_CLIENT_START_STATUS_EXPORT));
     getScoreboardStatus = reinterpret_cast<SdgoPvpAiClientGetScoreboardStatusV1Fn>(GetProcAddress(GetModuleHandleW(L"match_ai.dll"), SDGO_PVP_AI_CLIENT_SCOREBOARD_STATUS_EXPORT));
     if (!fpsOnly && !bootstrapOnly && !pagesOnly && !scoreboardInput.Install(api, mod)) return 0;

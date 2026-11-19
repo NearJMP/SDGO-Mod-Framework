@@ -112,9 +112,13 @@ inline void CancelCatalog() {
 inline void __fastcall GuardMenuBusiness(void* menu, void*, const void* payload, void* control) {
     const DWORD error = GetLastError();
     State state; void* app = CurrentApp(); size_t offset = 0; void* root = nullptr;
-    // MyRoomRadio (+54) can be the native bootstrap into the inventory owner.
-    // Keep that path available; the existing unit-management guards protect it.
-    if (Read(app, state) && LoginInventoryLoading(state) && IdentifyControl(menu, control, offset, root) && offset != 0x54) {
+    // MyRoomRadio (+54) can start the initial inventory load. Once the
+    // server's first page has advanced the cursor, changing to MyRoom would
+    // start a second request at the same cursor while the first is in flight.
+    constexpr size_t myRoomRadio = 0x54;
+    if (Read(app, state) && LoginInventoryLoading(state) &&
+        IdentifyControl(menu, control, offset, root) &&
+        (offset != myRoomRadio || (state.capacity != 0 && state.cursor != 0))) {
         CancelCatalog();
         const bool changed = pendingMenu.app != app || pendingMenu.inventory != state.inventory || pendingMenu.controlOffset != offset;
         // Retain an action identity, not the dispatcher's transient UI payload.

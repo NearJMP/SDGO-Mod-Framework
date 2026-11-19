@@ -18,7 +18,7 @@ class UnitScenarioTests(unittest.TestCase):
                 {'pages_only':True,'play_unit_uid':17})
     def test_early_navigation_is_sealed_first_page_action_with_basic_recovery_suite(self):
         context={'pages_only':True,'play_unit_uid':17}
-        for target in ('catalog','capsule','room'):
+        for target in ('catalog','capsule','room','management'):
             with self.subTest(target=target):
                 value={'schema':1,'early_navigation':target}
                 bound=scope.bind(value,context)['unit_scenario']
@@ -51,7 +51,7 @@ class UnitScenarioTests(unittest.TestCase):
 
     def test_pre_inventory_navigation_is_sealed_inside_onboarding(self):
         context={'pages_only':True,'play_unit_uid':17}
-        for target in ('catalog','capsule','room'):
+        for target in ('catalog','capsule','room','management'):
             with self.subTest(target=target):
                 value={'schema':1,'early_navigation_before_inventory':target}
                 bound=scope.bind(value,context)['unit_scenario']
@@ -69,6 +69,16 @@ class UnitScenarioTests(unittest.TestCase):
                 'early_navigation':'capsule',
                 'early_navigation_before_inventory':'capsule',
             },context)
+
+    def test_mid_inventory_management_hangar_scope_is_explicit_and_sealed(self):
+        context={'pages_only':True,'play_unit_uid':17}
+        value={'schema':1,'early_navigation_before_inventory':'management','management_to_hangar':True}
+        bound=scope.bind(value,context)['unit_scenario']
+        self.assertEqual(scope.settings(bound)['EarlyManagementToHangar'],'1')
+        for change in ({'management_to_hangar':False},
+                       {'early_navigation_before_inventory':'catalog'},
+                       {'early_navigation_before_inventory':'room'}):
+            with self.assertRaises(ValueError):scope.bind(value|change,context)
 
     def test_explicit_encyclopedia_target_is_sealed_separately_from_owned_unit(self):
         context={'pages_only':True,'play_unit_uid':839}
@@ -317,7 +327,7 @@ class SealedUnitScenarioTests(unittest.TestCase):
             game_test.validate_metadata(run)
 
     def test_prepares_and_seals_each_early_navigation_target(self):
-        for target in ('catalog','capsule','room'):
+        for target in ('catalog','capsule','room','management'):
             with self.subTest(target=target):
                 run=self.prepare('early-navigation-'+target,pages_only=True,play_unit_uid=17,
                     unit_scenario={'schema':1,'early_navigation':target})

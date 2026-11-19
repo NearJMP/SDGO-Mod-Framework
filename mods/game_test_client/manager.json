@@ -12,7 +12,7 @@
     {
       "id": "log_native_packet_ingress",
       "key": "LogNativePacketIngress",
-      "label": "原生包入口诊断（与登录恢复分开使用）",
+      "label": "原生包入口诊断",
       "type": "boolean",
       "default": false,
       "file": "mod.ini",
@@ -307,7 +307,8 @@
         "off",
         "catalog",
         "capsule",
-        "room"
+        "room",
+        "management"
       ],
       "file": "mod.ini",
       "section": "settings",
@@ -810,6 +811,18 @@
       "default": 0,
       "minimum": 0,
       "maximum": 2147483647,
+      "file": "mod.ini",
+      "section": "settings",
+      "audience": "developer",
+      "activation": "restart_required"
+    },
+    {
+      "id": "early_management_to_hangar",
+      "key": "EarlyManagementToHangar",
+      "label": "分页中切换我的房间（封存测试）",
+      "description": "仅用于库存未完成的机体管理场景；首批分页到达后切换我的房间，检查原生初始化生命周期。",
+      "type": "boolean",
+      "default": false,
       "file": "mod.ini",
       "section": "settings",
       "audience": "developer",

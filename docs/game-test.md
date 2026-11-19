@@ -531,7 +531,9 @@ directly. Keep credentials and command configuration local.
 Use `unit_scenario={"schema": 1, "early_navigation": "catalog"}` with
 `pages_only=True` and an existing `play_unit_uid` to request the encyclopedia
 from the first available enabled native control after login/onboarding.
-The other targets are `capsule` and `room`. The setting defaults to `off` and
+The other targets are `capsule`, `room` and `management`. `management` uses
+the actual `UnitBtn` control, separately from the encyclopedia's `UnitListBtn`.
+The setting defaults to `off` and
 is bound to the sealed scenario; an inactive default cannot arm this case.
 
 The observer records whether the target was ready and whether inventory was
@@ -544,12 +546,21 @@ checks its owner, manager, main state and model, then leaves through the native
 path; opening the room list is not enough. Normal unit-page checks follow.
 
 For the distinct initial-inventory window, use `early_navigation_before_inventory`
-instead of `early_navigation`, with the same `catalog`, `capsule` or `room` target.
+instead of `early_navigation`, with the same `catalog`, `capsule`, `room` or `management` target.
 This sealed case clicks during onboarding only while the genuine `CUnitInfo+0x20`
 ready flag is unset. It fails if the timing window was missed, records native
 packet/error observations, then requires real inventory completion, target
 readiness and native recovery before normal onboarding can pass. It neither
 creates an incomplete inventory nor substitutes a fixed delay.
+
+While inventory is incomplete, `management` retries its still-visible and enabled
+native button every 100 ms, up to 200 callbacks. It records accepted callback
+counts, native errors and the rendered management page before normal recovery.
+Set `management_to_hangar: true` in the same sealed scenario to click
+My Room once after the first real inventory page, then check that inventory
+completes and management can reopen.
+The packet observer uses a site after the native function prologue so login
+recovery can retain ownership of the function entry.
 
 ### Blueprint synthesis
 

@@ -22,6 +22,7 @@ public:
         kCatalog = 1,
         kCapsule = 2,
         kRoom = 3,
+        kManagement = 4,
     };
 
     enum Result : uint32_t
@@ -55,6 +56,7 @@ public:
         uint32_t target_queue_state = 0;
         uint32_t target_visible_items = 0;
         uint8_t clicked = 0;
+        uint8_t native_click_count = 0;
         uint8_t target_ready_at_click = 0;
         uint8_t inventory_initialized_at_click = 0;
         uint8_t inventory_complete_at_click = 0;
@@ -86,6 +88,7 @@ public:
             Symbol<NativeWStringDtorFn>("flow.native_wstring_dtor");
         catalogVtable_ =
             Symbol<void*>("test.unit_index_list_vtable");
+        managementVtable_ = Symbol<void*>("flow.unit_management_vtable");
         capsuleVtable_ =
             Symbol<void*>("flow.capsule_machine_vtable");
         roomListVtable_ =
@@ -123,6 +126,8 @@ public:
         recoveryClicked_ = false;
     }
 
+    void RepeatManagementClicks(bool enabled) { repeatManagement_=enabled; }
+
     Result Poll(
         Target target,
         uint64_t elapsedMs,
@@ -133,8 +138,10 @@ public:
             return Publish(kUnbound);
         if (target != kCatalog &&
             target != kCapsule &&
-            target != kRoom)
+            target != kRoom && target != kManagement)
             return Publish(kInvalidTarget);
+        if (target == kManagement && !managementVtable_)
+            return Publish(kUnbound);
         if (target_ == kOff)
             target_ = target;
         if (target_ != target)
@@ -159,10 +166,10 @@ public:
                 state_.inventory_complete_at_click =
                     static_cast<uint8_t>(inventoryComplete);
                 const HangarNavigation::Result source =
-                    target_ == kCatalog
+                    (target_ == kCatalog || target_ == kManagement)
                         ? navigation_->ClickOperatorMenuButton(
-                              L"UnitListBtn",
-                              0x84)
+                              target_ == kManagement ? L"UnitBtn" : L"UnitListBtn",
+                              target_ == kManagement ? 0x80 : 0x84)
                         : navigation_->ClickBottomRadio(
                               target_ == kCapsule
                                   ? L"CapsuleRoomRadio"
@@ -176,12 +183,19 @@ public:
                     return Publish(kSourceMismatch);
                 if (source != HangarNavigation::kReady)
                     return Publish(kWaitingForSource);
+                state_.native_click_count = 1;
                 state_.clicked = 1;
                 state_.click_elapsed_ms =
                     static_cast<uint32_t>(elapsedMs);
                 return Publish(kClicked);
             }
 
+            if (target_ == kManagement && repeatManagement_ && !inventoryInitialized &&
+                state_.native_click_count<200 &&
+                elapsedMs-state_.click_elapsed_ms>=state_.native_click_count*100u) {
+                const auto repeated=navigation_->ClickOperatorMenuButton(L"UnitBtn",0x80);
+                if (repeated==HangarNavigation::kReady) ++state_.native_click_count;
+            }
             if (target_ == kRoom) {
                 if (state_.native_app_state != kGameRoomAppState)
                     return Publish(kWaitingForTarget);
@@ -201,7 +215,8 @@ public:
                 return elapsedMs - state_.click_elapsed_ms < 30000
                     ? Publish(kWaitingForTarget)
                     : Publish(kTargetServiceMismatch);
-            if (!current.ready)
+            if (!current.ready || (target_ == kManagement &&
+                (!inventoryInitialized || !inventoryComplete)))
                 return Publish(kWaitingForTarget);
             if (!state_.ready_elapsed_ms)
                 state_.ready_elapsed_ms =
@@ -216,7 +231,7 @@ public:
     {
         if (!bound_ || !native_ || !navigation_)
             return Publish(kUnbound);
-        if (target_ != kCatalog && target_ != kCapsule)
+        if (target_ != kCatalog && target_ != kCapsule && target_ != kManagement)
             return Publish(kInvalidTarget);
         __try {
             state_.native_app_state = native_->AppState();
@@ -402,11 +417,11 @@ private:
     {
         TargetState result = {};
         const wchar_t* name =
-            target_ == kCatalog
+            target_ == kManagement ? L"UnitIndexingCubbyhole" : target_ == kCatalog
                 ? L"UnitCatalogList"
                 : L"roommgr";
         void* expected =
-            target_ == kCatalog
+            target_ == kManagement ? managementVtable_ : target_ == kCatalog
                 ? catalogVtable_
                 : capsuleVtable_;
         uint8_t* service =
@@ -418,7 +433,14 @@ private:
             return result;
         }
         result.present = true;
-        if (target_ == kCatalog) {
+        if (target_ == kManagement) {
+            auto* root = *reinterpret_cast<uint8_t**>(service + 0x44);
+            result.rootVisible = root && root[kControlVisible];
+            for (unsigned index=0;index<36;++index)
+                if (*reinterpret_cast<const uint16_t*>(service + 0x7AC + index*2))
+                    ++result.visibleItems;
+            result.ready = result.rootVisible && result.visibleItems;
+        } else if (target_ == kCatalog) {
             uint8_t* root =
                 *reinterpret_cast<uint8_t**>(
                     service + kCatalogRoot);
@@ -525,6 +547,7 @@ private:
     NativeWStringDtorFn nativeWStringDtor_ = nullptr;
     GameAppFn gameApp_ = nullptr;
     void* catalogVtable_ = nullptr;
+    void* managementVtable_ = nullptr;
     void* capsuleVtable_ = nullptr;
     void* roomListVtable_ = nullptr;
     void* modalLoadingVtable_ = nullptr;
@@ -536,4 +559,5 @@ private:
     Observation state_ = {};
     bool bound_ = false;
     bool recoveryClicked_ = false;
+    bool repeatManagement_ = true;
 };

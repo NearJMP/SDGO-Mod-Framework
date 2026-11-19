@@ -23,6 +23,7 @@ using IngressFn = int(__cdecl*)(
 
 inline NativePacketIngressProbe* active = nullptr;
 inline IngressFn original = nullptr;
+inline void* siteOriginal = nullptr;
 inline const DWORD defaultMxcsr = 0x1F80;
 
 void __cdecl Dispatch(
@@ -71,6 +72,41 @@ __declspec(naked) inline int __cdecl Hook()
         popad
         popfd
         jmp dword ptr [original]
+    }
+}
+
+// Observe after the verified native SEH prologue. Login recovery can own the
+// function entry; EBP still addresses the five original cdecl arguments here.
+__declspec(naked) inline void SiteHook()
+{
+    __asm {
+        pushfd
+        pushad
+        mov eax, esp
+        sub esp, 210h
+        and esp, 0FFFFFFF0h
+        mov [esp + 200h], eax
+        mov edx, dword ptr fs:[34h]
+        mov [esp + 204h], edx
+        fxsave [esp]
+        fninit
+        ldmxcsr dword ptr [defaultMxcsr]
+        cld
+        push dword ptr [ebp + 4]
+        push dword ptr [ebp + 18h]
+        push dword ptr [ebp + 14h]
+        push dword ptr [ebp + 10h]
+        push dword ptr [ebp + 0Ch]
+        push dword ptr [ebp + 8]
+        call Dispatch
+        add esp, 18h
+        fxrstor [esp]
+        mov edx, [esp + 204h]
+        mov dword ptr fs:[34h], edx
+        mov esp, [esp + 200h]
+        popad
+        popfd
+        jmp dword ptr [siteOriginal]
     }
 }
 
@@ -139,6 +175,18 @@ public:
     }
 
     bool Installed() const { return api_ != nullptr; }
+
+    bool InstallAtSite(const SdgoApi* api, SdgoMod* mod,
+                       const char* symbol="test.native_packet_ingress_site")
+    {
+        using namespace native_packet_ingress_bridge;
+        if (!api || !api->HookSite || !mod || !symbol || active) return false;
+        api_=api;mod_=mod;active=this;siteOriginal=nullptr;
+        if (!api->HookSite(mod,symbol,reinterpret_cast<void*>(&SiteHook),&siteOriginal) || !siteOriginal) {
+            active=nullptr;siteOriginal=nullptr;api_=nullptr;mod_=nullptr;return false;
+        }
+        return true;
+    }
 
     bool Install(
         const SdgoApi* api,

@@ -321,6 +321,7 @@ Grid（`6`）和 Tag（`7`）会通过原生业务切换 VS 频道，并要求�
 
 使用 `unit_scenario={"schema": 1, "early_navigation": "catalog"}`，配合 `pages_only=True` 和已有的
 `play_unit_uid`，在登录／onboarding 后通过第一个可用的原生已启用控件打开图鉴。其他目标为 `capsule` 和 `room`。
+`management` 使用操作菜单的真实 `UnitBtn` 打开“机体管理”，与 `catalog` 的“机体一览”入口分开验证。
 该设置默认 `off`，绑定在封存场景中；未启用的默认值不会触发此场景。
 
 观察器记录实际点击时目标是否就绪、库存是否已完整，不延迟库存，也不制造未完成状态。`catalog` 和 `capsule`
@@ -329,10 +330,16 @@ Grid（`6`）和 Tag（`7`）会通过原生业务切换 VS 频道，并要求�
 之后继续常规机体页面检查。
 
 初始库存尚未完成的窗口使用密封配置 `unit_scenario={"schema":1,"early_navigation_before_inventory":"capsule"}`，
-同样配合 `pages_only=True` 和已有出击机体 UID。目标可选 `catalog`、`capsule` 或 `room`，不能与登录完成后的
+同样配合 `pages_only=True` 和已有出击机体 UID。目标可选 `catalog`、`capsule`、`room` 或 `management`，不能与登录完成后的
 `early_navigation` 混用。该场景在 onboarding 内调用真实已启用控件，并要求点击时原生 `CUnitInfo+0x20` 尚未置位。
 若错过这个窗口则明确失败，不把加载完成后的点击算作通过。随后观察真实分页、原生错误、目标页面就绪及正常返回，
 再继续常规 onboarding 检查；不改写库存状态、不伪造回包，也不用固定等待秒数代替收包证据。
+
+`management` 在原生库存未完成期间，每 100 毫秒尝试一次仍可见且启用的原按钮，最多 200 次；
+它记录实际接受的回调次数、原生错误码和页面画面，并等待真实库存分页完成后返回。
+同一封存场景中设置 `management_to_hangar: true`，会在第一批真实分页到达后点击一次“我的房间”，
+核对库存能否收齐，以及机体管理能否重新打开。
+网络入口观察位于原生函数前导之后，可与占用函数入口的登录恢复 Mod 同时运行。
 
 ### 设计图合成
 
