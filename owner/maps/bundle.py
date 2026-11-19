@@ -14,11 +14,13 @@ import hashlib
 import io
 import json
 import re
+import shutil
 import struct
+import tempfile
 import zipfile
 from pathlib import Path
 
-from owner.native_archive import build_archive
+from owner.native_archive import CHUNK_SIZE, build_archive_file, update_digest
 
 from .compiler import CompiledMap
 
@@ -29,6 +31,7 @@ LEGACY_PLAN_SCHEMAS = frozenset({'sdgo.map-import-server-plan/1', 'sdgo.map-impo
                                  'sdgo.map-import-server-plan/3'})
 OVERLAY_DOMAINS = {'trns': '.trn', 'sol': '.sol', 'mdrs': '.mod', 'anrs': '.ani', 'txrs': '.txr', 'fxrs': '.zfx',
                    'sprs': '.spr', 'sdrs': '.zsd'}
+PART_CHUNKS = 96 * 1024**2 // (CHUNK_SIZE + 8)
 TABLE_KEYS = {
     'tbl_MapFile': ('MapNo',),
     'tbl_MapData': ('MapID',),
@@ -80,13 +83,20 @@ def allowed_overlay(name: str) -> bool:
     return folder in OVERLAY_DOMAINS and name.endswith(OVERLAY_DOMAINS[folder])
 
 
-def _write_zip(path: Path, files: dict[str, bytes]) -> None:
+def _write_zip(path: Path, files: dict[str, bytes | Path]) -> None:
     with zipfile.ZipFile(path, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
         for name in sorted(files):
             info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
-            info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o644 << 16
-            archive.writestr(info, files[name])
+            data = files[name]
+            if isinstance(data, Path):
+                # The native archive already uses gzip per resource.
+                info.file_size = data.stat().st_size
+                with data.open('rb') as source, archive.open(info, 'w') as target:
+                    shutil.copyfileobj(source, target, 1024**2)
+            else:
+                info.compress_type = zipfile.ZIP_DEFLATED
+                archive.writestr(info, data)
 
 
 def build_publication(builds: list[CompiledMap], output: Path, *, program: dict[str, bytes] | None = None,
@@ -142,9 +152,6 @@ def build_publication(builds: list[CompiledMap], output: Path, *, program: dict[
         raise ValueError('duplicate native record id')
     flags = {ident: value for mission in missions or [] for ident, value in mission.record_flags.items()}
     catalog = native_catalog(rows, flags)
-    zdx, zpk, _ = build_archive(resources, allowed_overlay)
-    overlay = ('[runtime]\nschema=1\nindex=resources.zdx\nindex_sha256=' + hashlib.sha256(zdx).hexdigest() +
-               '\narchive=resources.zpk\narchive_sha256=' + hashlib.sha256(zpk).hexdigest() + '\n').encode('ascii')
     revision = hashlib.sha256(json.dumps({
         'catalog': hashlib.sha256(catalog).hexdigest(),
         'resources': {k: hashlib.sha256(v).hexdigest() for k, v in sorted(resources.items())},
@@ -157,8 +164,7 @@ def build_publication(builds: list[CompiledMap], output: Path, *, program: dict[
     }, sort_keys=True).encode()).hexdigest()[:16]
     maps = [{'map_key': b.report['map_key'], 'map_no': b.map_no, 'map_id': b.map_id, 'variant': b.variant,
              'trn': b.report['trn'], 'blocks': b.report.get('blocks', [])} for b in builds]
-    files = {PREFIX + 'catalog.bin': catalog, PREFIX + 'resource-overlay.ini': overlay,
-             PREFIX + 'resources.zdx': zdx, PREFIX + 'resources.zpk': zpk,
+    files = {PREFIX + 'catalog.bin': catalog,
              PREFIX + 'definitions.json': json.dumps({'protocol': 'sdgo.map-package', 'schema_version': 2,
                                                       'revision': revision, 'maps': maps, 'missions': mission_reports,
                                                       **(definitions or {})},
@@ -181,15 +187,31 @@ def build_publication(builds: list[CompiledMap], output: Path, *, program: dict[
         if not re.fullmatch(r'BGM/m[0-9]{3}[a-z0-9]*\.mp3', name):
             raise ValueError(f'unexpected loose file {name}')
         files['client/' + name] = raw
-    manifest = {'module': MODULE, 'schema_version': 2 if advanced else 1, 'revision': revision, 'maps': maps,
-                'files': {name: hashlib.sha256(raw).hexdigest() for name, raw in sorted(files.items())},
-                'owned_resources': sorted(resources), 'loose': sorted('client/' + n for n in loose),
-                'restart_required': True}
-    if advanced:
-        manifest['minimum_programme'] = '0.7.0'
-    files['manifest.json'] = json.dumps(manifest, ensure_ascii=False, indent=2).encode('utf-8')
     client_zip = output / 'SDGO-MapImport-Client.zip'
-    _write_zip(client_zip, files)
+    with tempfile.TemporaryDirectory(prefix='.map-archive-', dir=output) as directory:
+        staging = Path(directory)
+        zdx, archive = build_archive_file(resources, allowed_overlay, staging / 'resources.zpk', PART_CHUNKS)
+        parts = archive.get('parts', [{'name': 'resources.zpk', 'sha256': archive['archive_sha256']}])
+        overlay = ('[runtime]\nschema=1\nindex=resources.zdx\nindex_sha256=' + hashlib.sha256(zdx).hexdigest() +
+                   '\narchive=resources.zpk\narchive_sha256=' + archive['archive_sha256'] + '\n')
+        if len(parts) > 1:
+            overlay += f'parts={len(parts)}\npart_chunks={archive["part_chunks"]}\n'
+        files[PREFIX + 'resource-overlay.ini'] = overlay.encode('ascii')
+        files[PREFIX + 'resources.zdx'] = zdx
+        hashes = {name: hashlib.sha256(raw).hexdigest() for name, raw in files.items()}
+        for part in parts:
+            name = PREFIX + part['name']
+            files[name] = staging / part['name']
+            hashes[name] = part['sha256']
+        manifest = {'module': MODULE, 'schema_version': 2 if advanced else 1, 'revision': revision, 'maps': maps,
+                    'files': dict(sorted(hashes.items())), 'owned_resources': sorted(resources),
+                    'loose': sorted('client/' + n for n in loose), 'restart_required': True}
+        if advanced:
+            manifest['minimum_programme'] = '0.7.0'
+        files['manifest.json'] = json.dumps(manifest, ensure_ascii=False, indent=2).encode('utf-8')
+        candidate = staging / client_zip.name
+        _write_zip(candidate, files)
+        candidate.replace(client_zip)
 
     tables: dict[str, list[dict]] = {}
     for build in list(builds) + list(missions or []):
@@ -207,6 +229,9 @@ def build_publication(builds: list[CompiledMap], output: Path, *, program: dict[
     (output / 'server-plan.json').write_text(json.dumps(plan, ensure_ascii=False, indent=1), encoding='utf-8')
     (output / 'report.json').write_text(json.dumps([b.report for b in builds], ensure_ascii=False, indent=1),
                                         encoding='utf-8')
+    digest = hashlib.sha256()
+    with client_zip.open('rb') as source:
+        update_digest(digest, source)
     return {'revision': revision, 'client_zip': str(client_zip),
-            'client_zip_sha256': hashlib.sha256(client_zip.read_bytes()).hexdigest(),
+            'client_zip_sha256': digest.hexdigest(), 'archive_bytes': archive['archive_bytes'], 'archive_parts': len(parts),
             'server_plan': str(output / 'server-plan.json'), 'records': len(rows), 'resources': len(resources)}

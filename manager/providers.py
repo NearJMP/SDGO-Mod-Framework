@@ -1,6 +1,7 @@
 """Mod providers run behind the Manager's mode, session and revision checks."""
 from __future__ import annotations
 import base64
+from dataclasses import dataclass
 import json
 from pathlib import Path
 import re
@@ -13,6 +14,12 @@ class Binary:
     def __init__(self, data, mime='application/octet-stream', filename=None):
         distribution.require_redistributable_payload(filename or "Manager export", data)
         self.data, self.mime, self.filename = data, mime, filename
+
+
+@dataclass(frozen=True)
+class ZipDownload:
+    path: Path
+    filename: str
 
 
 class Provider:

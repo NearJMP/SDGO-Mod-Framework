@@ -93,6 +93,7 @@ def require_redistributable(name: str, raw: bytes) -> None:
 def _scan_public_stream(name: str, stream, *, capture: bool, copy_to=None) -> bytes | None:
     overlap = b""
     line = b""
+    line_limit = len(LOCAL_SOURCE_MARKER)
     collected = bytearray() if capture else None
     total = 0
     while True:
@@ -106,9 +107,19 @@ def _scan_public_stream(name: str, stream, *, capture: bool, copy_to=None) -> by
                 "Non-redistributable marker found in public payload: " + name
             )
         overlap = combined[-(max(map(len, PUBLIC_BLOCKED_MARKERS)) - 1):]
-        lines = (line + chunk).split(b"\n")
-        line = lines.pop()
-        if any(item.rstrip(b"\r").strip() == LOCAL_SOURCE_MARKER for item in lines):
+        lines = chunk.split(b"\n")
+        if line is None:
+            lines[0] = None
+        else:
+            lines[0] = line + lines[0]
+        tail = lines.pop()
+        if tail is None:
+            line = None
+        else:
+            tail = tail.lstrip()
+            length = len(tail.rstrip())
+            line = tail[:length + line_limit + 1] if length <= line_limit else None
+        if any(item is not None and item.strip() == LOCAL_SOURCE_MARKER for item in lines):
             raise ValueError("Local-only source found in public payload: " + name)
         if collected is not None:
             if total > 2 * 1024 * 1024:
@@ -116,7 +127,7 @@ def _scan_public_stream(name: str, stream, *, capture: bool, copy_to=None) -> by
             collected.extend(chunk)
         if copy_to is not None:
             copy_to.write(chunk)
-    if line.rstrip(b"\r").strip() == LOCAL_SOURCE_MARKER:
+    if line is not None and line.strip() == LOCAL_SOURCE_MARKER:
         raise ValueError("Local-only source found in public payload: " + name)
     return bytes(collected) if collected is not None else None
 
@@ -196,6 +207,15 @@ def require_redistributable_archive(raw: bytes) -> None:
     """Validate an exported ZIP before the Manager returns it to a player."""
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         _require_redistributable_archive(archive, depth=0)
+
+
+def require_redistributable_archive_stream(stream) -> None:
+    stream.seek(0)
+    _scan_public_stream('Manager export', stream, capture=False)
+    stream.seek(0)
+    with zipfile.ZipFile(stream) as archive:
+        _require_redistributable_archive(archive, depth=0)
+    stream.seek(0)
 
 
 def require_redistributable_payload(name: str, raw: bytes) -> None:

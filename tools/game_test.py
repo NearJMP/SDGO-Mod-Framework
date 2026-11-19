@@ -3639,9 +3639,23 @@ def prepare(
         if not unit_package.is_file() or not 0<unit_package.stat().st_size<=160*1024*1024:
             raise GameTestError('unit package is missing or exceeds the trusted installer limit')
         unit_payload=unit_package.read_bytes()
+    map_packages = set()
     for package in client_packages:
         path=Path(package)
-        if not path.is_file()or path.stat().st_size>72*1024*1024:raise GameTestError('client package is missing or exceeds the import limit')
+        from owner.maps.deployment import MAX_STREAM_BYTES
+        if not path.is_file() or path.stat().st_size > MAX_STREAM_BYTES:
+            raise GameTestError('client package is missing or exceeds the import limit')
+        if path.stat().st_size > 72 * 1024**2:
+            import zipfile
+            try:
+                with zipfile.ZipFile(path) as source:
+                    if source.getinfo('manifest.json').file_size <= 8 * 1024**2:
+                        if json.loads(source.read('manifest.json')).get('module') == 'map_catalog':
+                            map_packages.add(path)
+            except (OSError, ValueError, KeyError, AttributeError, zipfile.BadZipFile):
+                pass
+            if path not in map_packages:
+                raise GameTestError('large client packages require a map_catalog manifest')
     if page_group is not None:
         if page_group not in PAGE_GROUPS or not pages_only:
             raise GameTestError('page_group requires --pages-only')
@@ -4198,6 +4212,10 @@ def prepare(
         # A content ZIP may carry the programme version used to author it; the
         # isolated run must retain its data while exercising this exact build.
         for package in client_packages:
+            if Path(package) in map_packages:
+                from owner.maps.deployment import install_package
+                install_package(client, Path(package))
+                continue
             from types import SimpleNamespace
             import base64
             from manager.packages import import_client

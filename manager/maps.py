@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote
 
-from .providers import Provider, Binary
+from .providers import Provider, ZipDownload
 
 # Public examples bundled into the standalone Manager. The package is copied into a versioned, verified cache on
 # first view; it is not registered, compiled, installed or applied until the owner chooses the matching actions.
@@ -325,8 +325,8 @@ class Maps(Provider):
             if method == 'GET' and path == '/api/maps':
                 return self._state()
             if method == 'GET' and path == '/api/maps/client-package':
-                raw = (self._publication() / 'SDGO-MapImport-Client.zip').read_bytes()
-                return Binary(raw, 'application/zip', 'SDGO-MapImport-Client.zip')
+                name = 'SDGO-MapImport-Client.zip'
+                return ZipDownload(self._publication() / name, name)
             if method != 'POST':
                 raise ValueError('地图导入操作未登记')
             if path == '/api/maps/add':
@@ -383,8 +383,10 @@ class Maps(Provider):
                 report = self._maps().build(self._client(), self._server_ini(), output, log=lines.append)
                 return {'report': report, 'log': lines, 'state': self._state(), 'changes_applied': False}
             if path == '/api/maps/install-client':
-                raw = (self._publication() / 'SDGO-MapImport-Client.zip').read_bytes()
-                result = install_package(self._client(), raw)
+                package = Path(_text(body, 'package')) if body.get('package') else self._publication() / 'SDGO-MapImport-Client.zip'
+                if package.suffix.lower() != '.zip' or not package.is_file():
+                    raise ValueError('请选择地图客户端 ZIP 包')
+                result = install_package(self._client(), package)
                 return {'result': result, 'state': self._state(), 'changes_applied': True,
                         'message': '客户端地图包已安装，重启客户端生效。'}
             if path == '/api/maps/server/preflight':

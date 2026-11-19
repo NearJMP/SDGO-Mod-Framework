@@ -2,6 +2,8 @@
 
 [简体中文](map-import.zh-CN.md)
 
+[Large map packages and client LAA](client-resource-capacity.md)
+
 Register maps and missions that were made outside the game and prepared in the **map package protocol**: new terrain, objects, spawn points, sky, minimap and music, plus PvE missions with phase objectives, enemy waves, character dialogue, opening/mid-mission/ending cutscenes and native unit illustration strips. Imported maps appear in the battle room map list and imported missions in the mission room list, next to the original ones.
 
 Making a PvP battle map? Start with the [PvP map authoring guide](map-pvp-authoring.md): size, Blender export, baked lighting, ground, spawns, icon, packaging and a pre-delivery checklist.

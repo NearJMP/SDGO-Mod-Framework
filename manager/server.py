@@ -5,10 +5,11 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import threading
 from urllib.parse import parse_qs, urlsplit
 from . import storage
-from .providers import Binary
+from .providers import Binary, ZipDownload
 from .change_review import ReviewRequired
 
 
@@ -23,16 +24,26 @@ def make_server(workspace, port=0):
         def host_ok(self):
             return self.headers.get('Host') in (f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}')
 
-        def response(self, status, data, mime='application/json; charset=utf-8', filename=None):
+        def response_headers(self, status, size, mime, filename):
             self.send_response(status)
-            for key, value in [('Content-Type', mime), ('Content-Length', str(len(data))), ('Cache-Control', 'no-store'),
+            for key, value in [('Content-Type', mime), ('Content-Length', str(size)), ('Cache-Control', 'no-store'),
                 ('X-Content-Type-Options', 'nosniff'), ('Referrer-Policy', 'no-referrer'),
                 ('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'")]:
                 self.send_header(key, value)
             if filename:
                 self.send_header('Content-Disposition', 'attachment; filename="' + filename + '"')
             self.end_headers()
+
+        def response(self, status, data, mime='application/json; charset=utf-8', filename=None):
+            self.response_headers(status, len(data), mime, filename)
             self.wfile.write(data)
+
+        def zip_response(self, result):
+            from .distribution import require_redistributable_archive_stream
+            with result.path.open('rb') as source:
+                require_redistributable_archive_stream(source)
+                self.response_headers(200, os.fstat(source.fileno()).st_size, 'application/zip', result.filename)
+                shutil.copyfileobj(source, self.wfile, 1024**2)
 
         def send_json(self, status, value): self.response(status, storage.json_bytes(value))
 
@@ -169,6 +180,15 @@ def make_server(workspace, port=0):
                     threading.Thread(target=self.server.shutdown,daemon=True).start()
                     return
                 if method == 'POST' and path == '/api/hosts': return self.send_json(200, workspace.add_host(body['path']))
+                if path == '/api/client-memory':
+                    from . import client_memory
+                    from .owner_channel import mode
+                    host = workspace.host(query['host'][0] if method == 'GET' else body['host'])
+                    if host['role'] != 'client' or mode(host) != 'owner':
+                        raise ValueError('LAA 只能在 DIY 客户端设置；服主管理的客户端由其发布版本决定')
+                    result = (client_memory.inspect(host['path']) if method == 'GET' else
+                              client_memory.configure(host['path'], body['enabled'], body['sha256']))
+                    return self.send_json(200, result)
                 if method == 'POST' and path == '/api/pick':
                     from .picker import choose
                     return self.send_json(200,choose(body.get('kind','directory')))
@@ -194,6 +214,7 @@ def make_server(workspace, port=0):
                     with provider.lock, workspace.change_reviews.execute(provider,method,'/'+local,body,self.headers):
                         result = provider.request(method, '/' + local + ('?' + split.query if split.query else ''), body, self.headers)
                     if isinstance(result, Binary): return self.response(200, result.data, result.mime, result.filename)
+                    if isinstance(result, ZipDownload): return self.zip_response(result)
                     def urls(value):
                         if isinstance(value, list): return [urls(item) for item in value]
                         if isinstance(value, dict):

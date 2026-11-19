@@ -121,7 +121,12 @@ function showMods(isArchive=false){
  const listed=archiveView?host.archive:host.mods,enabled=listed.filter(mod=>mod.enabled).length;
  const summary=element('section',undefined,'hangar-summary'),info=element('div',undefined,'summary-info');
  info.append(element('strong',host.name),chip(ROLES[host.role]||host.role,'blue'),element('span',archiveView?listed.length+' 项自动修复':'已启用 '+enabled+' / '+listed.length,'muted'));
- summary.append(info);if(host.role==='client'&&!archiveView)summary.append(importButton(host));root.append(summary);
+ summary.append(info);
+ if(host.role==='client'&&!archiveView){
+  summary.append(importButton(host));
+  if(host.runtime_mode==='owner')summary.append(button('客户端 LAA',()=>configureClientMemory(host),'ui-btn is-ghost'));
+ }
+ root.append(summary);
  if(host.inventory_error)root.append(element('p',host.inventory_error,'error'));
  if(archiveView)root.append(element('p','这些修复随框架自动生效，不需要设置。排查问题时可以查看说明；如需临时关闭，先点左下角“显示开发信息”。','intro'));
  else root.append(howItWorks([['开关','点一下立即保存，不需要再按保存'],['生效','重新启动对应的游戏或服务器后生效'],['设置','进入详细参数，改完点「保存设置」']]));
@@ -147,6 +152,13 @@ function showMods(isArchive=false){
  if(!listed.length)root.append(element('section',installing.has(host.id)?'正在自动安装框架，装好后这里会列出可管理的功能。':archiveView?'这个目录没有需要归档的自动修复。':'这个目录还没有安装可管理的功能。可以导入服主给你的配置包，或添加你的服务器目录。','empty-state'));
  else root.append(grid);
  if(!archiveView&&listed.length)root.append(categorySwitches(host));
+}
+async function configureClientMemory(host){
+ const current=await request('/api/client-memory?'+new URLSearchParams({host:host.id}));
+ const action=current.enabled?'关闭':'启用';
+ if(!confirm('当前 LAA 已'+(current.enabled?'启用':'关闭')+'。'+action+' LAA？请先关闭此客户端。'))return;
+ const saved=await request('/api/client-memory',{host:host.id,enabled:!current.enabled,sha256:current.sha256});
+ message('客户端 LAA 已'+(saved.enabled?'启用':'关闭')+'，下次启动生效。');
 }
 async function showSettings(host,mod){
  const data=await request('/api/settings?'+new URLSearchParams({host,mod}));clear();$('page-title').textContent=data.contract.title;

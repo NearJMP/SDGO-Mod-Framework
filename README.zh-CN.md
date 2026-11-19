@@ -107,6 +107,7 @@
 | [副官与能力管理](docs/operator-assistant.zh-CN.md) <!-- catalog: `operator_catalog`、`operator_catalog_server` --> | 在 Manager 编辑副官外观、能力、补给掉落和商城草稿，导入分享包并发布配套内容 |
 | [AI 机体目录（可选）](docs/ai-catalog.zh-CN.md) <!-- catalog: `ai_catalog` --> | 把服务器可出击的机体加入 AI 机体池 |
 | [公告与展示规则](docs/announcements.zh-CN.md) <!-- catalog: `announcements` --> | 登录时显示一次资讯简报；可选在游戏内按时段和事件展示服主公告 |
+| [客户端资源容量](docs/client-resource-capacity.zh-CN.md) | 为 DIY 客户端设置 LAA，并通过 64 位 Manager 导入更大的地图包 |
 | [新账号起始配置](docs/new-account-profile.zh-CN.md) <!-- catalog: `new_account_profile` --> | 设置新账号的起始货币、军衔和赠送机体 |
 | [节日与生日赠礼](docs/calendar-gifts.zh-CN.md) | 在 Manager 配置节日、生日或指定日期的机体与道具赠礼，发到符合条件玩家的保管库 |
 

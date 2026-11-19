@@ -18,6 +18,11 @@ MAX_INDEX_BYTES = 64 * 1024 * 1024
 CHUNK_SIZE = 512
 
 
+def update_digest(digest, source) -> None:
+    for block in iter(lambda: source.read(1024**2), b''):
+        digest.update(block)
+
+
 def _validate_name(name: str, seen: set, allowed: Callable[[str], bool]) -> None:
     if (len(name)>240 or not re.fullmatch(r'[a-z0-9][a-z0-9_.-]*(?:/[a-z0-9][a-z0-9_.-]*)+',name)
             or any(part in ('.','..') or part.endswith('.') for part in name.split('/'))
@@ -246,6 +251,11 @@ def build_archive_file(resources, allowed: Callable[[str], bool], archive_path, 
     inventory={'chunk_size':CHUNK_SIZE,'entries':entries,'archive_sha256':digest.hexdigest(),
                'archive_bytes':chunk_count*(CHUNK_SIZE+8)}
     if len(written)>1:
-        inventory.update(part_chunks=part_chunks,
-                         parts=[{'name':path.name,'bytes':path.stat().st_size,'sha256':hashlib.sha256(path.read_bytes()).hexdigest()} for path in written])
+        parts=[]
+        for path in written:
+            part_digest=hashlib.sha256()
+            with path.open('rb') as source:
+                update_digest(part_digest,source)
+            parts.append({'name':path.name,'bytes':path.stat().st_size,'sha256':part_digest.hexdigest()})
+        inventory.update(part_chunks=part_chunks,parts=parts)
     return _index(entries,chunk_count),inventory
