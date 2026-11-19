@@ -556,10 +556,12 @@ creates an incomplete inventory nor substitutes a fixed delay.
 While inventory is incomplete, `management` retries its still-visible and enabled
 native button every 100 ms, up to 200 callbacks. It records accepted callback
 counts, native errors and the rendered management page before normal recovery.
-Set `management_destination` to `my_room`, `capsule` or `shop` to click
+Set `management_destination` to `my_room`, `capsule`, `shop` or `mission` to click
 the corresponding navigation control once after the first real inventory page.
-The scenario checks that inventory completes, the destination opens and
-management can reopen.
+Use `before_first_inventory_page: true` to click with that first request in flight
+and the cursor still at zero. The mission case enters the original joint mission
+room list. All four cases check that inventory completes, the destination opens
+and management can reopen.
 The packet observer uses a site after the native function prologue so login
 recovery can retain ownership of the function entry.
 

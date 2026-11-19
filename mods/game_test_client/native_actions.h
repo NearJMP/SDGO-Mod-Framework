@@ -691,7 +691,9 @@ private:
             __except(EXCEPTION_EXECUTE_HANDLER) {}
             actions->api_->Log(actions->mod_,SDGO_LOG_INFO,"original battle start header pilot=%u mode=%u bytes=%d result=%d",pilot,mode,size,result);
         }
-        if (inventoryCursorValid && InterlockedIncrement(&actions->inventoryPageObservations_)<=5 && actions->api_ && actions->api_->Log)
+        if (inventoryCursorValid && result &&
+            InterlockedIncrement(&actions->inventoryPageObservations_)<=96 &&
+            actions->api_ && actions->api_->Log)
             actions->api_->Log(actions->mod_,SDGO_LOG_INFO,"original inventory page request cursor=%llu bytes=%d result=%d",
                 static_cast<unsigned long long>(inventoryCursor),size,result);
 

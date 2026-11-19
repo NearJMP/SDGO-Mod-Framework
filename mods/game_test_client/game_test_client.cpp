@@ -136,6 +136,7 @@ LoadingNavigationActions::Target earlyNavigationTarget =
     LoadingNavigationActions::kOff;
 bool earlyNavigationBeforeInventory = false;
 LoadingNavigationActions::Destination earlyManagementDestination = LoadingNavigationActions::Destination::None;
+bool earlyManagementBeforeFirstPage = false;
 BlueprintActions blueprint;
 BlueprintActions::Config blueprintConfig{};
 std::vector<uint32_t> nativeIdProbeIds;
@@ -530,9 +531,13 @@ bool LoadPlan() {
     else if (!wcscmp(destinationName,L"my_room")) earlyManagementDestination=Destination::MyRoom;
     else if (!wcscmp(destinationName,L"capsule")) earlyManagementDestination=Destination::Capsule;
     else if (!wcscmp(destinationName,L"shop")) earlyManagementDestination=Destination::Shop;
+    else if (!wcscmp(destinationName,L"mission")) earlyManagementDestination=Destination::Mission;
     else return false;
     if(earlyManagementDestination!=Destination::None && (!earlyNavigationBeforeInventory ||
        earlyNavigationTarget!=LoadingNavigationActions::kManagement))return false;
+    const int firstPage=GetPrivateProfileIntW(L"settings",L"EarlyManagementBeforeFirstPage",0,blueprintIni.c_str());
+    if(firstPage<0 || firstPage>1 || (firstPage && earlyManagementDestination==Destination::None))return false;
+    earlyManagementBeforeFirstPage=firstPage==1;
     if(earlyNavigationBeforeInventory &&
        earlyNavigationTarget==LoadingNavigationActions::kOff)return false;
     captureNativeFrames=GetPrivateProfileIntW(L"settings",L"CaptureNativeFrames",0,
@@ -2314,8 +2319,7 @@ int __cdecl Onboarding(const SdgoGameTestContextV1* context) {
                         static_cast<unsigned>(popup.opcode),
                         popup.error,
                         static_cast<unsigned>(popup.error),
-                        static_cast<unsigned>(
-                            code==0x279A || code==0x27A4),
+                        static_cast<unsigned>(code==0x279A),
                         reinterpret_cast<void*>(popup.caller));
                     context->Observe(message);
                     context->Assert(0,
@@ -2356,14 +2360,33 @@ int __cdecl Onboarding(const SdgoGameTestContextV1* context) {
                 static bool crossed=false,arrived=false,returnClicked=false,reopened=false;
                 const auto target=LoadingNavigationActions::ControlFor(earlyManagementDestination);
                 const bool complete=inventory.initialized && inventory.scan_complete;
-                if(!crossed && !inventory.initialized && inventory.slot_capacity &&
-                   (inventory.last_uid_cursor_low || inventory.last_uid_cursor_high)) {
+                const bool hasCursor=inventory.last_uid_cursor_low || inventory.last_uid_cursor_high;
+                const bool correctWindow=earlyManagementBeforeFirstPage
+                    ? !hasCursor && actions.InventoryPageRequestSeen()
+                    : hasCursor;
+                const bool canCross=!inventory.initialized && inventory.slot_capacity && correctWindow;
+                if(earlyManagementDestination==Destination::Mission && !arrived && (canCross || crossed)) {
+                    const auto selected=mission.EnsureRoom(5,"NativeInventoryLobby",false,0,true,true);
+                    if(selected>=MissionFlowActions::kInvalidMode || selected==MissionFlowActions::kUnbound) {
+                        context->Observe(MissionFlowActions::ResultName(selected));
+                        context->Assert(0,"the real joint mission lobby entry retains its original control and replies");
+                        return SDGO_GAME_TEST_FAIL;
+                    }
+                    const auto channel=mission.PollSnapshot();
+                    if(!crossed && (channel.channel_choice_armed || channel.channel_request_sent || channel.mission_lobby_observed)) {
+                        crossed=true;
+                        context->Observe("the real joint mission channel control was clicked before inventory completion");
+                    }
+                    arrived=selected==MissionFlowActions::kMissionChannelAccepted && channel.mission_lobby_observed;
+                    if(arrived)context->Observe("the original joint mission room list is present");
+                } else if(!crossed && canCross && target.name) {
                     const auto click=hangarNavigation.ClickBottomRadio(target.name,target.offset);
                     if(click==HangarNavigation::kReady) {
                         crossed=true;
                         char message[220];sprintf_s(message,
-                            "mid-inventory %s invoked after a real page: ready=%u capacity=%u cursor=%u:%u app=%u",
-                            target.label,inventory.initialized,inventory.slot_capacity,inventory.last_uid_cursor_high,
+                            "mid-inventory %s invoked %s: ready=%u capacity=%u cursor=%u:%u app=%u",
+                            target.label,earlyManagementBeforeFirstPage?"with the first reply in flight":"after a real page",
+                            inventory.initialized,inventory.slot_capacity,inventory.last_uid_cursor_high,
                             inventory.last_uid_cursor_low,actions.AppState());context->Observe(message);
                     }
                 }
@@ -2373,6 +2396,7 @@ int __cdecl Onboarding(const SdgoGameTestContextV1* context) {
                 }
                 if(!crossed || !complete)return SDGO_GAME_TEST_WAIT;
                 if(!arrived) {
+                    if(earlyManagementDestination==Destination::Mission)return SDGO_GAME_TEST_WAIT;
                     if(!loadingNavigation.DestinationReady(earlyManagementDestination)) return SDGO_GAME_TEST_WAIT;
                     arrived=true;
                     char message[160];sprintf_s(message,"the deferred %s destination opened after real inventory completion",target.label);
@@ -2436,7 +2460,9 @@ int __cdecl Onboarding(const SdgoGameTestContextV1* context) {
             }
         }
         if(earlyPhase==kEarlyRecovering) {
-            const auto result=loadingNavigation.Recover(context->elapsed_ms);
+            const auto result=earlyManagementDestination==LoadingNavigationActions::Destination::Mission
+                ? loadingNavigation.Recover(context->elapsed_ms,mission.LobbyVisible())
+                : loadingNavigation.Recover(context->elapsed_ms);
             reportEarly();
             if(failEarly(result))return SDGO_GAME_TEST_FAIL;
             if(result==LoadingNavigationActions::kRecovered)
@@ -7104,7 +7130,8 @@ SDGO_MOD_ENTRY {
     const bool bindPageCatalogObservers=pagesOnly && !unitAcquisitionUiPreviewOnly;
     if (!loaded || !actions.Bind(api, mod, config) ||
         (!missionMode && !channels.Bind(api, mod, &actions)) ||
-        ((missionMode || roomTitlesOnly) && !mission.Bind(api,mod,&actions)) ||
+        ((missionMode || roomTitlesOnly || earlyManagementDestination==LoadingNavigationActions::Destination::Mission) &&
+         !mission.Bind(api,mod,&actions)) ||
         !battleships.Bind(api,mod,&actions) || !gifts.Bind(api,mod,&actions) ||
         (deckOnly && !decks.Bind(api,mod,&actions)) ||
         (!hangarNavigation.Bind(api,mod,&actions)) ||

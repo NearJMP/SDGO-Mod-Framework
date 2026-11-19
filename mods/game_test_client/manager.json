@@ -831,16 +831,29 @@
     {
       "id": "early_management_destination",
       "key": "EarlyManagementDestination",
-      "label": "分页中的底栏切换（封存测试）",
-      "description": "机体管理测试在首批库存分页到达后，经底栏进入所选页面。",
+      "label": "库存同步中的页面切换（封存测试）",
+      "description": "机体管理测试在库存同步期间使用原生控件进入所选页面。",
       "type": "choice",
       "default": "off",
       "options": [
         "off",
         "my_room",
         "capsule",
-        "shop"
+        "shop",
+        "mission"
       ],
+      "file": "mod.ini",
+      "section": "settings",
+      "audience": "developer",
+      "activation": "restart_required"
+    },
+    {
+      "id": "early_management_before_first_page",
+      "key": "EarlyManagementBeforeFirstPage",
+      "label": "库存首包到达前切换（封存测试）",
+      "description": "等待客户端发出第一条库存分页请求后、收到回复前，再触发已选页面操作。",
+      "type": "boolean",
+      "default": false,
       "file": "mod.ini",
       "section": "settings",
       "audience": "developer",

@@ -9,6 +9,7 @@ SETTINGS = {'UnitPagesOnly':'0','UnitPresentations':'0','UnitPortraits':'0','Uni
     'UnitPresentationDetailOnly':'0',
     'CaptureNativeFrames':'0','CollectionPreviewOnly':'0','EarlyNavigationTarget':'off',
     'EarlyNavigationBeforeInventory':'0','EarlyManagementToHangar':'0','EarlyManagementDestination':'off',
+    'EarlyManagementBeforeFirstPage':'0',
     'UnitAcquisitionKind':'0','UnitAcquisitionMachine':'0','UnitAcquisitionUnit':'0',
     'UnitAcquisitionUiPreviewOnly':'0',
     'CapsulePreviewMachine':'990001','CapsulePreviewPrice':'100000','CapsulePreviewCurrency':'0',
@@ -22,7 +23,7 @@ INDEX_CASES = ('pages.unit_index.list','pages.unit_index.detail',
 PORTRAIT_CASES = ('pages.unit_index.pose_wait','pages.unit_index.pose_ready')
 
 def validate(value, plan):
-    if not isinstance(value,dict) or set(value)-{'schema','capture_frames','portraits','presentation_target','detail_only','acquisition','collection_preview','activity_target','activity_draw','reward_pairs','blueprint','native_id_probe','native_record_lifecycle','early_navigation','early_navigation_before_inventory','management_to_hangar','management_destination'}:
+    if not isinstance(value,dict) or set(value)-{'schema','capture_frames','portraits','presentation_target','detail_only','acquisition','collection_preview','activity_target','activity_draw','reward_pairs','blueprint','native_id_probe','native_record_lifecycle','early_navigation','early_navigation_before_inventory','management_to_hangar','management_destination','before_first_inventory_page'}:
         raise ValueError('invalid native unit scenario fields')
     if type(value.get('schema')) is not int or value['schema']!=1:
         raise ValueError('unsupported native unit scenario schema')
@@ -67,11 +68,15 @@ def validate(value, plan):
         result['management_to_hangar']=True
     if 'management_destination' in value:
         destination=value['management_destination']
-        if (destination not in ('my_room','capsule','shop') or
+        if (destination not in ('my_room','capsule','shop','mission') or
                 value.get('early_navigation_before_inventory')!='management' or
                 'management_to_hangar' in value):
             raise ValueError('mid-inventory destination requires one sealed management transition')
         result['management_destination']=destination
+    if 'before_first_inventory_page' in value:
+        if value['before_first_inventory_page'] is not True or 'management_destination' not in result:
+            raise ValueError('first inventory page timing requires a sealed management destination')
+        result['before_first_inventory_page']=True
     if 'native_id_probe' in value:
         probe=value['native_id_probe']
         if (not isinstance(probe,dict) or set(probe)!={'ids','witness_unit_id','require_absent'} or
@@ -182,7 +187,8 @@ def settings(value=None):
         EarlyNavigationBeforeInventory=str(
             int('early_navigation_before_inventory' in value)),
         EarlyManagementToHangar=str(int(value.get('management_to_hangar',False))),
-        EarlyManagementDestination=value.get('management_destination','off'))
+        EarlyManagementDestination=value.get('management_destination','off'),
+        EarlyManagementBeforeFirstPage=str(int(value.get('before_first_inventory_page',False))))
     if value.get('native_id_probe'):
         probe=value['native_id_probe'];ids=probe['ids']
         result.update(UnitPresentations='0',NativeIdProbeCount=str(len(ids)),
@@ -264,6 +270,7 @@ def read(root, digest, plan, read_ini):
                  'early_navigation_before_inventory' not in value) or
                 (key=='EarlyManagementToHangar' and not value.get('management_to_hangar')) or
                 (key=='EarlyManagementDestination' and 'management_destination' not in value) or
+                (key=='EarlyManagementBeforeFirstPage' and not value.get('before_first_inventory_page')) or
                 (key=='UnitAcquisitionUiPreviewOnly' and
                  not value.get('acquisition',{}).get('ui_preview_only')) or
                 (key=='UnitPresentationDetailOnly' and not value.get('detail_only'))):

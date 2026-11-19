@@ -419,7 +419,8 @@ public:
         const char* roomTitle,
         bool submit = true,
         uint32_t missionId = 0,
-        bool lobbyOnly = false)
+        bool lobbyOnly = false,
+        bool inventoryMayDeferEntry = false)
     {
         if (!bound_ || !native_)
             return Publish(kUnbound);
@@ -502,9 +503,20 @@ public:
                     kWaitingForMissionChannel);
             }
 
-            return Publish(EnterMissionChannel());
+            return Publish(EnterMissionChannel(inventoryMayDeferEntry));
         } __except (EXCEPTION_EXECUTE_HANDLER) {
             return Publish(kNativeFault);
+        }
+    }
+
+    bool LobbyVisible() const
+    {
+        __try {
+            const auto* lobby = static_cast<const uint8_t*>(ResolveUniqueByVtable(missionLobbyVtable_));
+            auto* root = lobby ? *reinterpret_cast<void* const*>(lobby + kMissionLobbyRoot) : nullptr;
+            return ValidateControl(root, FindControl(root, L"MultiRadio", kRadioKind), L"MultiRadio", true);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            return false;
         }
     }
 
@@ -1095,7 +1107,7 @@ private:
         return result;
     }
 
-    Result EnterMissionChannel()
+    Result EnterMissionChannel(bool inventoryMayDeferEntry)
     {
         if (topEntryInvoked_) {
             if (InterlockedCompareExchange(
@@ -1126,6 +1138,8 @@ private:
             const uint32_t requestState =
                 *reinterpret_cast<uint32_t*>(
                     owner + kTopRequestState);
+            if (inventoryMayDeferEntry && requestState == 0)
+                return kEnteringMissionChannel;
             InterlockedExchange(
                 &channelPageMode_,
                 static_cast<LONG>(pageMode));
@@ -1198,6 +1212,8 @@ private:
             static_cast<uint8_t*>(button) +
                 kControlName,
             button);
+        if (inventoryMayDeferEntry && *reinterpret_cast<uint32_t*>(bytes + kTopRequestState) == 0)
+            return kEnteringMissionChannel;
         if (*reinterpret_cast<uint32_t*>(
                 bytes + kTopPageMode) !=
                 kMissionPageMode ||

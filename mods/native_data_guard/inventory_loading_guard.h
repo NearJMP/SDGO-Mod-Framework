@@ -14,10 +14,15 @@ inline SdgoMod* mod = nullptr;
 inline uint8_t** inventoryPointer = nullptr;
 inline uint8_t** appPointer = nullptr;
 inline uint8_t** serviceManagerPointer = nullptr;
-inline void* menuVtable = nullptr;
+struct Menu {
+    void* vtable = nullptr;
+    MenuBusiness business = nullptr;
+    MenuCallback callback = nullptr;
+    uint32_t event = 0;
+};
+inline Menu bottomMenu{nullptr, nullptr, nullptr, 0x301};
+inline Menu channelMenu{nullptr, nullptr, nullptr, 0x101};
 inline CatalogOpen originalCatalogOpen = nullptr;
-inline MenuBusiness originalMenuBusiness = nullptr;
-inline MenuCallback nativeMenuCallback = nullptr;
 inline bool replayingMenu = false;
 inline void* frameTailTrampoline = nullptr;
 inline volatile LONG deferredCalls = 0, resumedTransitions = 0;
@@ -35,6 +40,7 @@ struct Pending {
     void* inventory = nullptr;
     uint32_t state = 0;
     size_t controlOffset = 0;
+    const Menu* menu = nullptr;
 };
 inline Pending pendingMenu{}, pendingCatalog{};
 inline bool Read(void* app, State& state) {
@@ -57,11 +63,15 @@ inline void* CurrentApp() {
     __try { return appPointer ? *appPointer : nullptr; }
     __except (EXCEPTION_EXECUTE_HANDLER) { return nullptr; }
 }
-inline bool LoginInventoryLoading(const State& state) {
-    // Capacity zero is the real slot-count-request phase of the same stream.
-    // Initial login itself still starts the original inventory owner normally.
-    return (state.current == 5 || state.current == 6) && state.inventory &&
-        state.ready == 0 && state.capacity <= UINT16_MAX;
+enum class InventoryPhase { OutsideLoginLoad, SlotCount, Paging };
+inline InventoryPhase LoginInventoryPhase(const State& state) {
+    if ((state.current != 5 && state.current != 6) || !state.inventory ||
+        state.ready != 0 || state.capacity > UINT16_MAX)
+        return InventoryPhase::OutsideLoginLoad;
+    // Both native slot-count handlers allocate capacity immediately before
+    // sending the first brief-page request. The cursor is still zero until
+    // that page is consumed, even though pagination already owns the stream.
+    return state.capacity ? InventoryPhase::Paging : InventoryPhase::SlotCount;
 }
 inline void LogWaiting(const State& state, const char* action) {
     alignas(16) unsigned char saved[512];
@@ -72,14 +82,18 @@ inline void LogWaiting(const State& state, const char* action) {
         static_cast<unsigned long long>(state.cursor));
     _fxrstor(saved);
 }
-inline bool IdentifyControl(void* menu, void* control, size_t& offset, void*& root) {
+inline bool IdentifyControl(const Menu& kind, void* menu, void* control, size_t& offset) {
     __try {
-        if (!menu || !control || *static_cast<void**>(menu) != menuVtable) return false;
+        if (!menu || !control || *static_cast<void**>(menu) != kind.vtable) return false;
         const auto* bytes = static_cast<const uint8_t*>(menu);
-        root = *reinterpret_cast<void* const*>(bytes + 0x44);
+        void* root = *reinterpret_cast<void* const*>(bytes + 0x44);
         if (!root || *reinterpret_cast<void**>(static_cast<uint8_t*>(control) + 0x15c) != root) return false;
-        constexpr size_t offsets[] = {0x48, 0x4c, 0x50, 0x54, 0x58, 0x5c};
-        for (size_t item : offsets) {
+        // The top menu's channel buttons enter the original channel-list flow.
+        // The other buttons perform unrelated actions and keep native timing.
+        const bool channel = &kind == &channelMenu;
+        if (channel && *reinterpret_cast<const uint32_t*>(bytes + 0x68)) return false;
+        const size_t last = channel ? 0x58 : 0x5c;
+        for (size_t item = channel ? 0x54 : 0x48; item <= last; item += 4) {
             if (*reinterpret_cast<void* const*>(bytes + item) == control) { offset = item; return true; }
         }
         return false;
@@ -92,10 +106,10 @@ inline bool ResolveControl(const Pending& request, void*& menu, void*& control) 
         auto* node = head ? *reinterpret_cast<uint8_t**>(head) : nullptr;
         for (unsigned count = 0; node && node != head && count < 512; ++count) {
             auto* service = *reinterpret_cast<uint8_t**>(node + 8);
-            if (service && *reinterpret_cast<void**>(service) == menuVtable) {
+            if (service && *reinterpret_cast<void**>(service) == request.menu->vtable) {
                 control = *reinterpret_cast<void**>(service + request.controlOffset);
-                size_t offset = 0; void* root = nullptr;
-                if (IdentifyControl(service, control, offset, root) && offset == request.controlOffset) {
+                size_t offset = 0;
+                if (IdentifyControl(*request.menu, service, control, offset) && offset == request.controlOffset) {
                     const auto* widget = static_cast<const uint8_t*>(control);
                     if (widget[0x162] && widget[0x167]) { menu = service; return true; }
                 }
@@ -109,34 +123,42 @@ inline void CancelCatalog() {
     if (pendingCatalog.app) InterlockedIncrement(&cancelledCatalog);
     pendingCatalog = {};
 }
-inline void __fastcall GuardMenuBusiness(void* menu, void*, const void* payload, void* control) {
+inline void GuardNavigation(const Menu& kind, void* menu, const void* payload, void* control) {
     const DWORD error = GetLastError();
-    State state; void* app = CurrentApp(); size_t offset = 0; void* root = nullptr;
-    // MyRoomRadio (+54) can start the initial inventory load. Once the
-    // server's first page has advanced the cursor, changing to MyRoom would
-    // start a second request at the same cursor while the first is in flight.
+    State state; void* app = CurrentApp(); size_t offset = 0;
+    // MyRoomRadio can still start the original slot-count bootstrap.
     constexpr size_t myRoomRadio = 0x54;
-    if (Read(app, state) && LoginInventoryLoading(state) &&
-        IdentifyControl(menu, control, offset, root) &&
-        (offset != myRoomRadio || (state.capacity != 0 && state.cursor != 0))) {
+    const auto phase = Read(app, state) ? LoginInventoryPhase(state) : InventoryPhase::OutsideLoginLoad;
+    const bool navigation = IdentifyControl(kind, menu, control, offset);
+    const bool bootstrap = &kind == &bottomMenu && offset == myRoomRadio && phase == InventoryPhase::SlotCount;
+    if (navigation && phase != InventoryPhase::OutsideLoginLoad && !bootstrap) {
         CancelCatalog();
-        const bool changed = pendingMenu.app != app || pendingMenu.inventory != state.inventory || pendingMenu.controlOffset != offset;
-        // Retain an action identity, not the dispatcher's transient UI payload.
-        // The native business routine never reads its first explicit argument.
-        pendingMenu = {app, state.inventory, state.current, offset};
+        const bool changed = pendingMenu.app != app || pendingMenu.inventory != state.inventory ||
+            pendingMenu.menu != &kind || pendingMenu.controlOffset != offset;
+        // Retain the action identity. Rebuild any callback payload from the
+        // live control at replay time.
+        pendingMenu = {app, state.inventory, state.current, offset, &kind};
         InterlockedIncrement(&deferredCalls);
-        if (changed) LogWaiting(state, "menu request");
+        if (changed) LogWaiting(state, &kind == &channelMenu ? "channel navigation" : "menu request");
         SetLastError(error); return;
     }
-    if (replayingMenu) { replayingMenu = false; InterlockedIncrement(&resumedTransitions); }
-    pendingMenu = {}; CancelCatalog();
-    SetLastError(error); originalMenuBusiness(menu, payload, control);
+    if (navigation) {
+        if (replayingMenu) { replayingMenu = false; InterlockedIncrement(&resumedTransitions); }
+        pendingMenu = {}; CancelCatalog();
+    }
+    SetLastError(error); kind.business(menu, payload, control);
+}
+inline void __fastcall GuardMenuBusiness(void* menu, void*, const void* payload, void* control) {
+    GuardNavigation(bottomMenu, menu, payload, control);
+}
+inline void __fastcall GuardChannelBusiness(void* menu, void*, const void* payload, void* control) {
+    GuardNavigation(channelMenu, menu, payload, control);
 }
 inline void __cdecl GuardCatalogOpen() {
     const DWORD error = GetLastError();
     State state; void* app = CurrentApp();
     pendingMenu = {};
-    if (Read(app, state) && LoginInventoryLoading(state)) {
+    if (Read(app, state) && LoginInventoryPhase(state) != InventoryPhase::OutsideLoginLoad) {
         if (pendingCatalog.app != app || pendingCatalog.inventory != state.inventory || pendingCatalog.state != state.current) {
             CancelCatalog();
             pendingCatalog = {app, state.inventory, state.current};
@@ -165,8 +187,10 @@ inline void __stdcall ResumeRequests() {
                 // Reuse the original callback's parent and starter-busy checks.
                 // If it declines the action, the business hook is not reached
                 // and the intent remains pending for a later native frame.
+                const Menu& kind = *pendingMenu.menu;
+                const void* payload = &kind == &channelMenu ? static_cast<uint8_t*>(control) + 0x118 : nullptr;
                 replayingMenu = true;
-                nativeMenuCallback(menu, 0x301, nullptr, control);
+                kind.callback(menu, kind.event, payload, control);
                 replayingMenu = false;
             }
         }
@@ -205,12 +229,17 @@ inline bool Attach(const SdgoApi* ownerApi, SdgoMod* ownerMod) {
     inventoryPointer = static_cast<uint8_t**>(api->Symbol(mod, "native_data_guard.inventory_pointer"));
     appPointer = static_cast<uint8_t**>(api->Symbol(mod, "native_data_guard.app_pointer"));
     serviceManagerPointer = static_cast<uint8_t**>(api->Symbol(mod, "native_data_guard.service_manager_pointer"));
-    menuVtable = api->Symbol(mod, "native_data_guard.menu_vtable");
-    nativeMenuCallback = reinterpret_cast<MenuCallback>(api->Symbol(mod, "native_data_guard.menu_callback"));
-    return inventoryPointer && appPointer && serviceManagerPointer && menuVtable && nativeMenuCallback &&
+    bottomMenu.vtable = api->Symbol(mod, "native_data_guard.menu_vtable");
+    bottomMenu.callback = reinterpret_cast<MenuCallback>(api->Symbol(mod, "native_data_guard.menu_callback"));
+    channelMenu.vtable = api->Symbol(mod, "flow.lobby_ui_vtable");
+    channelMenu.callback = reinterpret_cast<MenuCallback>(api->Symbol(mod, "flow.lobby_ui_callback"));
+    return inventoryPointer && appPointer && serviceManagerPointer && bottomMenu.vtable && bottomMenu.callback &&
+        channelMenu.vtable && channelMenu.callback &&
         api->HookSite(mod, "native_data_guard.frame_tail", reinterpret_cast<void*>(&FrameTailSite), &frameTailTrampoline) &&
         api->HookCode(mod, "native_data_guard.menu_business", reinterpret_cast<void*>(&GuardMenuBusiness),
-            reinterpret_cast<void**>(&originalMenuBusiness)) &&
+            reinterpret_cast<void**>(&bottomMenu.business)) &&
+        api->HookCode(mod, "native_data_guard.channel_business", reinterpret_cast<void*>(&GuardChannelBusiness),
+            reinterpret_cast<void**>(&channelMenu.business)) &&
         api->HookCode(mod, "native_data_guard.catalog_open", reinterpret_cast<void*>(&GuardCatalogOpen),
             reinterpret_cast<void**>(&originalCatalogOpen));
 }

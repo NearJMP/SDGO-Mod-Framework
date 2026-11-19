@@ -80,11 +80,16 @@ class UnitScenarioTests(unittest.TestCase):
                        {'early_navigation_before_inventory':'room'}):
             with self.assertRaises(ValueError):scope.bind(value|change,context)
 
-        for destination in ('my_room','capsule','shop'):
+        for destination in ('my_room','capsule','shop','mission'):
             plan={'schema':1,'early_navigation_before_inventory':'management','management_destination':destination}
             bound=scope.bind(plan,context)['unit_scenario']
             self.assertEqual(scope.settings(bound)['EarlyManagementDestination'],destination)
+            self.assertEqual(scope.settings(bound)['EarlyManagementBeforeFirstPage'],'0')
+            first_page=scope.bind(plan|{'before_first_inventory_page':True},context)['unit_scenario']
+            self.assertEqual(scope.settings(first_page)['EarlyManagementBeforeFirstPage'],'1')
             with self.assertRaises(ValueError):scope.bind(plan|{'management_to_hangar':True},context)
+            with self.assertRaises(ValueError):scope.bind(plan|{'before_first_inventory_page':False},context)
+        with self.assertRaises(ValueError):scope.bind(value|{'before_first_inventory_page':True},context)
 
     def test_explicit_encyclopedia_target_is_sealed_separately_from_owned_unit(self):
         context={'pages_only':True,'play_unit_uid':839}

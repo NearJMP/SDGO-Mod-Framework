@@ -3,14 +3,17 @@ std::array<uint8_t, 0x500> inventoryApp{};
 std::array<uint8_t, 0x28> pendingInventory{};
 std::array<uint8_t, 0xb0> inventoryServices{};
 std::array<uint8_t, 0x64> inventoryMenu{};
+std::array<uint8_t, 0x74> inventoryChannelMenu{};
 std::array<uint8_t, 0x180> inventoryMenuRoot{};
 std::array<std::array<uint8_t, 0x180>, 6> inventoryControls{};
 std::array<uintptr_t, 3> inventoryServiceHead{}, inventoryServiceNode{};
 std::array<void*, 16> inventoryMenuVtable{};
+std::array<void*, 16> inventoryChannelVtable{};
 uint8_t* inventoryObject = pendingInventory.data();
 uint8_t* inventoryAppObject = inventoryApp.data();
 uint8_t* inventoryServiceObject = inventoryServices.data();
 void* inventoryMenuHook = nullptr;
+void* inventoryChannelHook = nullptr;
 void* inventoryTailHook = nullptr;
 void* inventoryCatalogHook = nullptr;
 unsigned inventoryMenuCalls = 0, inventoryCatalogCalls = 0;
@@ -22,6 +25,10 @@ bool inventoryStarterBusy = false;
 using InventoryMenuHook = void(__fastcall*)(void*, void*, const void*, void*);
 uint32_t __stdcall InventoryNativeMenuCallback(void* menu, uint32_t event, const void* payload, void* control) {
     if (event == 0x301 && !inventoryStarterBusy) reinterpret_cast<InventoryMenuHook>(inventoryMenuHook)(menu, nullptr, payload, control);
+    return 0;
+}
+uint32_t __stdcall InventoryChannelCallback(void* menu, uint32_t event, const void* payload, void* control) {
+    if (event == 0x101) reinterpret_cast<InventoryMenuHook>(inventoryChannelHook)(menu, nullptr, payload, control);
     return 0;
 }
 
@@ -50,6 +57,8 @@ void* InventoryGuardSymbol(const char* key) {
     if (!std::strcmp(key, "native_data_guard.service_manager_pointer")) return &inventoryServiceObject;
     if (!std::strcmp(key, "native_data_guard.menu_vtable")) return inventoryMenuVtable.data();
     if (!std::strcmp(key, "native_data_guard.menu_callback")) return reinterpret_cast<void*>(&InventoryNativeMenuCallback);
+    if (!std::strcmp(key, "flow.lobby_ui_vtable")) return inventoryChannelVtable.data();
+    if (!std::strcmp(key, "flow.lobby_ui_callback")) return reinterpret_cast<void*>(&InventoryChannelCallback);
     return nullptr;
 }
 bool InventoryGuardCodeHook(const char* key, void* detour, void** original) {
@@ -61,6 +70,10 @@ bool InventoryGuardCodeHook(const char* key, void* detour, void** original) {
         inventoryMenuHook = detour;
         *original = reinterpret_cast<void*>(&OriginalInventoryMenu); return true;
     }
+    if (!std::strcmp(key, "native_data_guard.channel_business")) {
+        inventoryChannelHook = detour;
+        *original = reinterpret_cast<void*>(&OriginalInventoryMenu); return true;
+    }
     return false;
 }
 bool InventoryGuardSiteHook(const char* key, void* detour, void** original) {
@@ -69,8 +82,8 @@ bool InventoryGuardSiteHook(const char* key, void* detour, void** original) {
     *original = reinterpret_cast<void*>(&InventoryTailOriginal); return true;
 }
 void RunInventoryGuardCases(HMODULE dll) {
-    Check(inventoryMenuHook && inventoryTailHook && inventoryCatalogHook,
-          "actual DLL guards both original navigation business entries and the native frame tail");
+    Check(inventoryMenuHook && inventoryChannelHook && inventoryTailHook && inventoryCatalogHook,
+          "actual DLL guards bottom navigation, channel navigation and the catalog at the native frame tail");
     Put(inventoryServices.data(), 0x44, inventoryServiceHead.data());
     inventoryServiceHead[0] = reinterpret_cast<uintptr_t>(inventoryServiceNode.data());
     inventoryServiceNode[0] = reinterpret_cast<uintptr_t>(inventoryServiceHead.data());
@@ -183,11 +196,56 @@ void RunInventoryGuardCases(HMODULE dll) {
     Check(inventoryMenuCalls == beforeMyRoom + 1 &&
           observedInventoryControl == inventoryControls[3].data(),
           "the original MyRoom action resumes once after inventory completes");
+    stage(6, 1200, 0);
+    Put(pendingInventory.data(), 0x18, uint64_t{0});
+    const auto beforeFirstReply = pendingInventory;
+    const unsigned beforeFirstSwitch = inventoryMenuCalls;
+    menu(inventoryMenu.data(), nullptr, payload, inventoryControls[3].data());
+    InvokeInventoryTail();
+    Check(inventoryMenuCalls == beforeFirstSwitch && pendingInventory == beforeFirstReply,
+          "allocated capacity with cursor zero still holds MyRoom until the first page arrives and sync completes");
+    Put(pendingInventory.data(), 0x18, uint64_t{1698});
+    InvokeInventoryTail();
+    Check(inventoryMenuCalls == beforeFirstSwitch,
+          "advancing the cursor alone cannot release the waiting navigation");
+    pendingInventory[0x20] = 1;
+    InvokeInventoryTail(); InvokeInventoryTail();
+    Check(inventoryMenuCalls == beforeFirstSwitch + 1 &&
+          observedInventoryControl == inventoryControls[3].data(),
+          "the first-page transition resumes once when native inventory is complete");
+    Put(inventoryChannelMenu.data(), 0, inventoryChannelVtable.data());
+    Put(inventoryChannelMenu.data(), 0x44, inventoryMenuRoot.data());
+    Put(inventoryChannelMenu.data(), 0x48, inventoryControls[0].data());
+    Put(inventoryChannelMenu.data(), 0x54, inventoryControls[3].data());
+    Put(inventoryChannelMenu.data(), 0x58, inventoryControls[4].data());
+    std::array<uintptr_t, 3> channelNode{reinterpret_cast<uintptr_t>(inventoryServiceHead.data()), 0,
+        reinterpret_cast<uintptr_t>(inventoryChannelMenu.data())};
+    inventoryServiceNode[0] = reinterpret_cast<uintptr_t>(channelNode.data());
+    const auto channel = reinterpret_cast<MenuHook>(inventoryChannelHook);
+    const auto beforeChannel = inventoryMenuCalls;
+    stage(6, 1200, 0);
+    Put(pendingInventory.data(), 0x18, uint64_t{0});
+    menu(inventoryMenu.data(), nullptr, payload, inventoryControls[1].data());
+    channel(inventoryChannelMenu.data(), nullptr, payload, inventoryControls[3].data());
+    channel(inventoryChannelMenu.data(), nullptr, payload, inventoryControls[4].data());
+    InvokeInventoryTail();
+    Check(inventoryMenuCalls == beforeChannel, "both top channel paths wait while the first page is in flight");
+    channel(inventoryChannelMenu.data(), nullptr, payload, inventoryControls[0].data());
+    Check(inventoryMenuCalls == beforeChannel + 1 && observedInventoryPayload == payload,
+          "the other top buttons keep their original behavior");
+    pendingInventory[0x20] = 1;
+    Put(inventoryChannelMenu.data(), 0x68, uint32_t{2}); InvokeInventoryTail();
+    Check(inventoryMenuCalls == beforeChannel + 1, "the channel flow's pending request is preserved");
+    Put(inventoryChannelMenu.data(), 0x68, uint32_t{0}); InvokeInventoryTail(); InvokeInventoryTail();
+    Check(inventoryMenuCalls == beforeChannel + 2 && observedInventoryMenu == inventoryChannelMenu.data() &&
+          observedInventoryControl == inventoryControls[4].data() &&
+          observedInventoryPayload == inventoryControls[4].data() + 0x118,
+          "the last navigation resumes once through the native top callback and supersedes the bottom intent");
     using Status = int(__cdecl*)(SdgoNativeDataGuardStatusV6*);
     auto status = reinterpret_cast<Status>(GetProcAddress(dll, "SdgoNativeDataGuardGetStatusV6"));
     SdgoNativeDataGuardStatusV6 observed{sizeof(observed), 6};
-    Check(status && status(&observed) && observed.deferred_inventory_transition_calls >= 10 &&
-          observed.resumed_inventory_transitions == 10 && observed.deferred_inventory_catalog_requests == 5 &&
+    Check(status && status(&observed) && observed.deferred_inventory_transition_calls >= 14 &&
+          observed.resumed_inventory_transitions == 12 && observed.deferred_inventory_catalog_requests == 5 &&
           observed.resumed_inventory_catalog_requests == 2 && observed.cancelled_inventory_catalog_requests == 3,
           "additive read-only observer reports actual deferred actions, resumes and cancellations");
 }

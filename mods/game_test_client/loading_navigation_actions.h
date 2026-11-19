@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 
 #include "hangar_navigation.h"
 #include "native_actions.h"
@@ -24,7 +25,7 @@ public:
         kRoom = 3,
         kManagement = 4,
     };
-    enum class Destination { None, MyRoom, Capsule, Shop };
+    enum class Destination { None, MyRoom, Capsule, Shop, Mission };
 
     struct DestinationControl {
         const wchar_t* name;
@@ -37,6 +38,7 @@ public:
         case Destination::MyRoom: return {L"MyRoomRadio",0x54,"MyRoomRadio"};
         case Destination::Capsule: return {L"CapsuleRoomRadio",0x4C,"CapsuleRoomRadio"};
         case Destination::Shop: return {L"ShopRoomRadio",0x50,"ShopRoomRadio"};
+        case Destination::Mission: return {nullptr,0,"JointMissionLobby"};
         default: return {nullptr,0,"off"};
         }
     }
@@ -257,7 +259,7 @@ public:
         }
     }
 
-    Result Recover(uint64_t elapsedMs)
+    Result Recover(uint64_t elapsedMs, std::optional<bool> missionLobbyReady = std::nullopt)
     {
         if (!bound_ || !native_ || !navigation_)
             return Publish(kUnbound);
@@ -276,8 +278,9 @@ public:
                 // settled item set is revoked, however. Accept recovery only
                 // after that transition and after the shipped room-list
                 // service exposes a genuine enabled creation control.
-                const auto destination =
-                    navigation_->EnsureGameRoom(
+                const auto destination = missionLobbyReady
+                    ? (*missionLobbyReady ? HangarNavigation::kReady : HangarNavigation::kWaitingForGameRoom)
+                    : navigation_->EnsureGameRoom(
                         roomListVtable_,
                         modalLoadingVtable_);
                 if (destination == HangarNavigation::kUnbound)
