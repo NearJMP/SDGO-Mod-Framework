@@ -402,6 +402,8 @@ if(BUILD_TESTING)
         login_recovery_policy_test login_recovery_client_dll_test sdgo_core d3d9_shim game_test_client sdgo_catalog)
 endif()
 sdgo_add_mod(fps_limit DESCRIPTION "native config.xml FPS cap" SOURCES mods/fps_limit/fps_limit.cpp)
+sdgo_add_mod(native_display DESCRIPTION "native borderless display and render size"
+             SOURCES mods/native_display/native_display.cpp FILES symbols.fragment.ini LIBS user32 comctl32)
 sdgo_add_mod(announcements DESCRIPTION "scheduled native announcements"
              SOURCES mods/announcements/announcements.cpp FILES symbols.fragment.ini rules.json runtime.ini news-settings.json news.ini LIBS ole32 oleaut32 uuid comctl32 winhttp)
 

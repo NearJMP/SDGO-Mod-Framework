@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "distribution": "public",
+  "id": "native_display",
+  "title": "原生无边框显示",
+  "category": "gameplay",
+  "hosts": ["client"],
+  "description": "为战斗选择无边框显示和实际渲染尺寸。菜单和大厅使用放大后的原生 4:3 界面，保持控件位置。",
+  "presentation": "configurable",
+  "mechanism": "复用客户端窗口和渲染设备。战斗使用所选分辨率，菜单以等比例窗口呈现原有画布，鼠标位置映射回原坐标。",
+  "settings": [
+    {
+      "id": "resolution",
+      "key": "Resolution",
+      "label": "无边框分辨率",
+      "type": "choice",
+      "default": "desktop",
+      "options": ["desktop", "1080p", "1440p", "2160p"],
+      "file": "mod.ini",
+      "section": "settings",
+      "audience": "user",
+      "activation": "restart"
+    }
+  ]
+}

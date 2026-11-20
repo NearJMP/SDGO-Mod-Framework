@@ -103,6 +103,12 @@ public:
         PublishPoint(screen);
         return PostMessageW(window,WM_MOUSEMOVE,0,PackClientPoint(x,y))!=FALSE;
     }
+    bool MoveToDesignPoint(int x, int y) {
+        HWND window = FindOwnedGameWindow();
+        RECT client{};
+        if (!window || !GetClientRect(window, &client)) return false;
+        return MoveToClientPoint(MulDiv(x, client.right, DesignWidth), MulDiv(y, client.bottom, DesignHeight));
+    }
     void SetLeftButton(bool down,bool doubleClick=false) {
         const LONG value=down?1:0;
         if (InterlockedExchange(&leftButton_,value)==value) return;

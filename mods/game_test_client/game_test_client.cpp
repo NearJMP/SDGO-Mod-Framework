@@ -6456,6 +6456,43 @@ void AppendUnitPresentations() {
     plannedCases.insert(plannedCases.end(),std::begin(unitPresentationCases)+2,std::end(unitPresentationCases));
 }
 std::vector<SdgoGameTestCaseV1> capturedOriginalCases,capturedCases;
+ShopPointerInput displayPointer;
+bool verifyDisplayPointer = false;
+bool displayPointerBound = false;
+
+int ProbeDisplayPointer(const SdgoGameTestContextV1* context) {
+    static unsigned phase = 0;
+    if (!displayPointerBound) {
+        context->Assert(0, "the isolated raw pointer adapter can bind the native display test");
+        return SDGO_GAME_TEST_FAIL;
+    }
+    // The 1024x768 down menu centers, measured on the actual native lobby.
+    // The adapter generates physical window coordinates before the Mod's map.
+    switch (phase) {
+        case 0:
+            if (!displayPointer.MoveToDesignPoint(566, 742)) return SDGO_GAME_TEST_WAIT;
+            break;
+        case 1: displayPointer.SetLeftButton(true); break;
+        case 2: displayPointer.SetLeftButton(false); break;
+        case 3:
+            if (actions.AppState() != 5 || !displayPointer.MoveToDesignPoint(217, 742))
+                return SDGO_GAME_TEST_WAIT;
+            context->Assert(1, "a scaled raw pointer click reached the native My Room control");
+            break;
+        case 4: displayPointer.SetLeftButton(true); break;
+        case 5: displayPointer.SetLeftButton(false); break;
+        case 6:
+            if (actions.AppState() != 6) return SDGO_GAME_TEST_WAIT;
+            displayPointer.Clear();
+            context->Assert(1, "a scaled raw pointer click reached the native Game Room control");
+            ++phase;
+            return SDGO_GAME_TEST_PASS;
+        default: return SDGO_GAME_TEST_PASS;
+    }
+    ++phase;
+    return SDGO_GAME_TEST_WAIT;
+}
+
 int __cdecl ObserveThenCapture(const SdgoGameTestContextV1* context) {
     static std::string current;
     static bool nativeComplete=false,requested=false;
@@ -6471,6 +6508,11 @@ int __cdecl ObserveThenCapture(const SdgoGameTestContextV1* context) {
         const int result=found->poll(context);
         if(result!=SDGO_GAME_TEST_PASS)return result;
         nativeComplete=true;
+    }
+    if (verifyDisplayPointer && current == "flow.onboarding") {
+        const int result = ProbeDisplayPointer(context);
+        if (result != SDGO_GAME_TEST_PASS) return result;
+        if (!captureNativeFrames) return SDGO_GAME_TEST_PASS;
     }
     const bool battleClip=current=="pvp.ai_spawn" || current=="mission.combat";
     const unsigned target=battleClip ? 24u:(current=="pages.unit_index.pose_ready" ? 3u:2u);
@@ -6499,16 +6541,25 @@ int __cdecl ObserveThenCapture(const SdgoGameTestContextV1* context) {
     return frame==target ? SDGO_GAME_TEST_PASS:SDGO_GAME_TEST_WAIT;
 }
 void WrapNativeCaptures() {
-    if(!captureNativeFrames)return;
+    const bool observeDisplay = GetModuleHandleW(L"native_display.dll") != nullptr;
+    // Keep virtual input scoped to the standalone menu probe for its whole lifetime.
+    verifyDisplayPointer = observeDisplay && bootstrapOnly;
+    if (!captureNativeFrames && !verifyDisplayPointer) return;
+    if (verifyDisplayPointer) displayPointerBound = displayPointer.Install(sdgo_test::api, sdgo_test::mod);
     capturedOriginalCases.assign(provider.cases,provider.cases+provider.count);
     capturedCases=capturedOriginalCases;
     // Login/bootstrap can finish before the native renderer starts presenting.
     // Capture the requested native pages without holding authentication behind
     // a screenshot of an initialization state.
-    for(auto& test:capturedCases)
-        if(std::strncmp(test.id,"pages.",6)==0||
-           (std::strncmp(test.id,"pvp.",4)==0&&std::strstr(test.id,".ai_spawn")) ||
-           std::strcmp(test.id,"mission.combat")==0)test.poll=&ObserveThenCapture;
+    for (auto& test : capturedCases) {
+        const bool onboarding = std::strcmp(test.id, "flow.onboarding") == 0;
+        const bool displayScene = observeDisplay && (onboarding || std::strcmp(test.id, "pvp.return") == 0);
+        const bool visualCase = displayScene || std::strncmp(test.id, "pages.", 6) == 0 ||
+            (std::strncmp(test.id, "pvp.", 4) == 0 && std::strstr(test.id, ".ai_spawn")) ||
+            std::strcmp(test.id, "mission.combat") == 0;
+        if ((verifyDisplayPointer && onboarding) || (captureNativeFrames && visualCase))
+            test.poll = &ObserveThenCapture;
+    }
     provider.cases=capturedCases.data();
 }
 
