@@ -1,5 +1,6 @@
 import {icon, enhance, chip, led, applyArt} from '/ui.js';
 import {setDisplayUtcOffset,reviewChange} from '/panel_helpers.js';
+import {imagePreview} from '/image_preview.js';
 const $=id=>document.getElementById(id);
 const ROLES={client:'客户端',battle:'对战服务器',agent:'中继服务器',world:'世界服务器'};
 const OWNER_KEY='sdgo-manager-owner-tools';
@@ -204,6 +205,7 @@ async function showSettings(host,mod){
   guard=()=>{const pending=changed().length;return pending?'「'+data.contract.title+'」有 '+pending+' 项设置尚未保存。':'';};
   bar.append(status,discard,save);refresh();root.append(box,bar);
  }else{box.append(element('p',data.contract.presentation==='automatic_fix'?'这项修复自动工作，不需要设置。':'这个功能没有需要填写的设置，打开开关即可使用。','muted'));root.append(box);}
+ if(mod==='native_display')root.append(imagePreview());
  root.append(supportActions({host,mod}));
 }
 async function showProvider(id){

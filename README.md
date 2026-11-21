@@ -82,7 +82,7 @@ Everyday frame-rate, display, hangar and claim controls.
 | Feature | Overview |
 |---|---|
 | [FPS cap](docs/fps-limit.md) <!-- catalog: `fps_limit` --> | Raise the rendering ceiling while keeping native gameplay speed |
-| [Native borderless display](docs/native-display.md) <!-- catalog: `native_display` --> | **Beta** · Native widescreen battles and a larger 4:3 menu |
+| [Native borderless display](docs/native-display.md) <!-- catalog: `native_display` --> | **Beta** · Native widescreen battles, a larger 4:3 menu, and local PNG preview and export |
 | [Hangar manager](docs/hangar-manager.md) <!-- catalog: `hangar_manager` --> | Sort the hangar, preview and exchange duplicate units on the unit-management page; results appear at once without a re-login; imported units included |
 | [Storage claim all](docs/storage-claim.md) <!-- catalog: `storage_claim` --> | Claim every item or gift in the current storage tab with one confirmation, waiting for native grant and list requests before continuing |
 | [Automatic hangar capacity](docs/hangar-capacity.md) <!-- catalog: `hangar_capacity` --> | Raise every account to at least 1200 hangar slots at login (WorldServer) |

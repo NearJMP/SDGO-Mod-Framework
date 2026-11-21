@@ -66,7 +66,7 @@ def make_server(workspace, port=0):
                     if not isinstance(body, dict): raise ValueError('请求必须是 JSON 对象')
                 if method == 'GET' and path in ('/', '/ui-kit.html'):
                     return self.response(200, (static / ('index.html' if path == '/' else 'ui-kit.html')).read_bytes(), 'text/html; charset=utf-8')
-                if method == 'GET' and path in ('/app.js', '/owner_updates.js', '/style.css', '/panel_helpers.js', '/ui.css', '/ui.js'):
+                if method == 'GET' and path in ('/app.js', '/owner_updates.js', '/style.css', '/panel_helpers.js', '/image_preview.js', '/ui.css', '/ui.js'):
                     return self.response(200, (static / path[1:]).read_bytes(), 'text/javascript; charset=utf-8' if path.endswith('.js') else 'text/css; charset=utf-8')
                 if method=='GET' and path in ('/brand.svg','/favicon.ico'):
                     return self.response(200,(static/('brand.svg' if path=='/brand.svg' else 'brand.ico')).read_bytes(),
