@@ -74,6 +74,8 @@ When the card opens, the radar reads the base attributes of the inspected unit a
 
 Opening unit information in unit management expands the native popup into three columns: the model, basic details and level on the left; weapons, basic skills and G改 1.0 parts in the middle; the OC radar and native G改 2.0 parts on the right. The layout reuses the native information artwork, including its title, thin borders, dividers and empty parts slots. The details table has separate rows, the weapon list is divided into rows, and each basic skill has its own cell. Both parts sections have a title bar and four slots. The level name and experience share one line in the left-hand level cell. Table rows and the experience gauge retain their native dimensions.
 
+![Full unit inspection card showing the unit, weapons, skills, radar and both sets of parts](oc-unit-information-demo.webp)
+
 The radar shares the allocation page's six-axis order, graph ranges and layer calculations. Green shows base attributes and normal enhancement; yellow shows Over enhancement. The chart retains only attribute names and the graph. Native I, II, III and IV icons below it show ordinary-point status: dim for points not yet earned, outlined for available points, and filled for allocated points. G改 2.0 retains native icons, levels, locks and tooltips.
 
 Viewing the same unit as its owner or as another player uses the same server data for the radar, ordinary points and G改 1.0/2.0 parts. G改 2.0 slots, levels, locks and tooltips describe the inspected unit. Units without an OC profile show their base attributes and existing parts; inspection does not create a profile or consume items. Replies for a previous unit or a closed window cannot replace the current display.
