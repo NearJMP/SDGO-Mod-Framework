@@ -4906,6 +4906,7 @@ int __cdecl OcPanel(const SdgoGameTestContextV1* context) {
     }
     if(phase==2) {
         if(capture(L"oc-original-windows")!=SDGO_GAME_TEST_PASS)return SDGO_GAME_TEST_WAIT;
+        if(s.oc_level < 9) context->Assert(s.over_points_left == 0, "a unit below OC has no remaining OC points");
         // Reset first when points are allocated, so the allocation presses have points.
         // The reset button clears normal points below OC 9 and Over points from OC 9.
         readyAt=GetTickCount64();phase=(s.oc_level>=9 ? sumOver():sumNormal())>0 ? 8:3;return SDGO_GAME_TEST_WAIT;
@@ -4931,6 +4932,8 @@ int __cdecl OcPanel(const SdgoGameTestContextV1* context) {
         const auto r=replied(command,"the confirmed allocation produced a save reply");if(r!=SDGO_GAME_TEST_PASS)return r;
         context->Assert(s.last_status==0 && s.last_ret_val==0 && s.revision>revisionBefore &&
             (leftBefore ? s.normal[0]==speedBefore+1 : true),"the original allocation procedure saved one speed point from the 0794 window");
+        if(leftBefore) context->Assert(s.normal_points_left + 1 == leftBefore, "a confirmed normal allocation spends one remaining normal point");
+        if(s.oc_level < 9) context->Assert(s.over_points_left == 0, "spending a normal point below OC leaves zero OC points");
         char message[200];sprintf_s(message,"oc window allocation saved normal=%u/%u/%u/%u/%u/%u over=%u/%u/%u/%u/%u/%u left=%u+%u revision=%u",
             s.normal[0],s.normal[1],s.normal[2],s.normal[3],s.normal[4],s.normal[5],s.over[0],s.over[1],s.over[2],s.over[3],s.over[4],s.over[5],
             s.normal_points_left,s.over_points_left,s.revision);

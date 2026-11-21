@@ -41,6 +41,10 @@ Unit and item names can use the enabled shop localization service, falling back 
 
 ## Playing
 
+The counter at the top of the factory allocation page shows remaining normal points + remaining OC points. Its right side stays at zero until OVER CUSTOM 1. Spending four normal points on attack takes the counter from 4+0 to 0+0 and the attack row from 0+0 to 4+0.
+
+![Normal and OC points remaining as attack points are spent](oc-remaining-points-demo.webp)
+
 The client package still ships the original OC layouts, and the Mod uses them as they are: the OC tab page (OVER CUSTOM level track and ITEM box), the allocation window, the challenge window, the confirmation popup and the OC-era OVER CUSTOM button. The window texts are the client's own original OC strings.
 
 Set the unit you want to enhance as the active unit and open the factory. With the server in `oc` mode the factory works as a dual-system factory: the tab bar gets back the OC-era **终极强化** tab right after **特殊扩张**, the other tabs move along, and every native tab keeps its own page untouched. All OC content lives on the 终极强化 tab.

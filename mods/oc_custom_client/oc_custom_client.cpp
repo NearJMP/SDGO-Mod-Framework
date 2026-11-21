@@ -423,10 +423,10 @@ int SumOf(const std::array<std::uint8_t, stat_count>& values) {
 }
 
 int NormalLeft(const State& s) {
-    return s.profile_present ? std::max(0, static_cast<int>(s.profile.normal_budget) - SumOf(s.profile.normal)) : 0;
+    return s.profile_present ? s.profile.normal_points : 0;
 }
 int OverLeft(const State& s) {
-    return s.profile_present ? std::max(0, static_cast<int>(s.profile.over_budget) - SumOf(s.profile.over)) : 0;
+    return s.profile_present && s.profile.oc_level >= 9 ? s.profile.over_points : 0;
 }
 bool ChallengeAvailable(const State& s) {
     return s.profile_present && s.profile.oc_level >= s.profile.normal_max_lv + 4 && s.profile.oc_level < 15;
@@ -655,7 +655,7 @@ void Render() {
         over.normal_left = std::to_wstring(NormalLeft(s));
         over.over_left = std::to_wstring(OverLeft(s));
         const bool can_normal = NormalLeft(s) > 0;
-        const bool can_over = !can_normal && s.profile.oc_level >= 9 && OverLeft(s) > 0;
+        const bool can_over = !can_normal && OverLeft(s) > 0;
         for (std::size_t stat = 0; stat < stat_count; ++stat) {
             over.label[stat] = Text(kLabels[stat], kFallback[stat]);
             over.normal[stat] = std::to_wstring(s.profile.normal[stat]);
@@ -1287,7 +1287,7 @@ void HandleAction(ui::Action action) {
     if (ui::IsUp(action)) {
         const auto stat = ui::UpStat(action);
         const bool normal = NormalLeft(s) > 0;
-        const bool over = !normal && s.profile.oc_level >= 9 && OverLeft(s) > 0;
+        const bool over = !normal && OverLeft(s) > 0;
         if (!normal && !over) {
             ShowMessage(126270, Text(126270, L"无法使用强化点数."));
         } else if (StatValue(s, stat, normal ? 1 : 0, over ? 1 : 0) > kStatCaps[stat]) {

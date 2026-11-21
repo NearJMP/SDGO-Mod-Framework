@@ -314,6 +314,18 @@
       "title_en": "Native sticker library, placement, server-confirmed save and reload",
       "guide_zh": "docs/sticker-import.zh-CN.md",
       "guide_en": "docs/sticker-import.md"
+    },
+    {
+      "id": "oc-remaining-points",
+      "path": "docs/oc-remaining-points-demo.webp",
+      "since": "1.16.59",
+      "mods": [
+        "oc_custom_client"
+      ],
+      "title_zh": "工厂加点页显示的普通点和 OC 点余额",
+      "title_en": "Normal and OC points remaining as attack points are spent",
+      "guide_zh": "docs/over-custom.zh-CN.md",
+      "guide_en": "docs/over-custom.md"
     }
   ]
 }
