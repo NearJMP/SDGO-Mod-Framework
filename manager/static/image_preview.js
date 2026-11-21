@@ -32,7 +32,16 @@ function node(tag, text, className) {
  return element;
 }
 
-export function imagePreview() {
+function base64(file) {
+ return new Promise((resolve,reject) => {
+  const reader = new FileReader();
+  reader.onerror = () => reject(Error('无法读取选中的 PNG。'));
+  reader.onload = () => resolve(reader.result.split(',',2)[1]);
+  reader.readAsDataURL(file);
+ });
+}
+
+export function imagePreview(host, request) {
  const panel = node('details', '', 'manager-card');
  const source = node('input'), external = node('input'), scale = node('select');
  for (const input of [source, external]) {
@@ -48,21 +57,60 @@ export function imagePreview() {
  }
  const generate = node('button', '生成本地预览', 'ui-btn is-primary');
  const save = node('button', '保存 PNG', 'ui-btn is-ghost');
+ const apply = node('button', '在游戏中使用', 'ui-btn is-blue');
+ const library = node('div');
+ const feedback = node('p', '', 'muted');
+ feedback.setAttribute('aria-live','polite');
+ const mounted = node('ul');
+ library.append(node('h3','本地游戏图片'), mounted, feedback);
+ const endpoint = '/api/display/images?' + new URLSearchParams({host});
  const status = node('p', '', 'muted');
  status.setAttribute('role', 'status');
  const comparison = node('div', '', 'settings-grid');
  const actions = node('div', '', 'actions');
- actions.append(generate, save);
+ actions.append(generate, save, apply);
  panel.append(node('summary', '本地图片高清预览'), node('p',
-  '放大自备 PNG，或比较本地 AI 的成图。生成的 PNG 保存在你的电脑上，可用于支持该尺寸的素材导入入口。', 'muted'),
-  fields, actions, status, comparison);
+  '用原图 PNG 匹配游戏图片，生成预览后选择「在游戏中使用」。启用原生无边框显示并重启游戏后生效。', 'muted'),
+  fields, actions, status, comparison, library);
  let revision = 0, output = null, busy = false;
+ let saving = false;
+ function renderMounted(items) {
+  mounted.replaceChildren();
+  for (const item of items) {
+   const row = node('li');
+   const remove = node('button','恢复原图','ui-btn is-ghost is-small');
+   remove.onclick = () => change({action:'remove',key:item.key});
+   row.append(node('span',`${item.width} × ${item.height} · ${item.source} `), remove);
+   mounted.append(row);
+  }
+ }
+ async function change(body) {
+  if (saving) return;
+  saving = true;
+  apply.disabled = true;
+  try {
+   renderMounted(await request(endpoint,body));
+   feedback.textContent = body.action === 'remove' ? '已移除。重启游戏后恢复原图。'
+    : '已保存。重启游戏后，匹配到的精灵会使用这张图。';
+  } catch (error) {
+   feedback.textContent = error.message;
+  } finally {
+   saving = false;
+   apply.disabled = !output;
+  }
+ }
+ panel.addEventListener('toggle',async () => {
+  if (!panel.open || saving) return;
+  try { renderMounted(await request(endpoint)); }
+  catch (error) { feedback.textContent = error.message; }
+ });
  function reset() {
   ++revision;
   output = null;
   comparison.replaceChildren();
   status.textContent = '';
   save.disabled = true;
+  apply.disabled = true;
   generate.disabled = busy || !source.files.length;
  }
  for (const input of [source, scale, external]) input.addEventListener('change', reset);
@@ -111,8 +159,9 @@ export function imagePreview() {
    const result = node('figure', '', 'image-preview');
    result.append(preview, node('figcaption', enhancement ? 'AI 成图 · 原图透明度' : '常规放大'));
    comparison.append(result);
-   output = {png, name: input.name.replace(/\.png$/i, '') + '-' + factor + 'x.png'};
+   output = {png, source:input, name: input.name.replace(/\.png$/i, '') + '-' + factor + 'x.png'};
    save.disabled = false;
+   apply.disabled = saving;
    status.textContent = `${size.width} × ${size.height} → ${width} × ${height}`;
   } catch (error) {
    if (requestRevision === revision) status.textContent = error.message;
@@ -128,6 +177,18 @@ export function imagePreview() {
   link.download = output.name;
   link.click();
   setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+ };
+ apply.onclick = async () => {
+  const selected = output;
+  if (!selected) return;
+  try {
+   if (Math.max(selected.png.size, selected.source.size) > 16 * 1024 * 1024)
+    throw Error('在游戏中使用时，每张 PNG 须在 16 MiB 内。');
+   const [original, replacement] = await Promise.all([base64(selected.source),base64(selected.png)]);
+   if (selected === output) await change({action:'apply',source:original,replacement});
+  } catch (error) {
+   feedback.textContent = error.message;
+  }
  };
  return panel;
 }

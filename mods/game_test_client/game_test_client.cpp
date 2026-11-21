@@ -1737,6 +1737,47 @@ int __cdecl Return(const SdgoGameTestContextV1* context) {
     roomRequested = startRequested = leaveRequested = endObserved = false;
     return SDGO_GAME_TEST_PASS;
 }
+ShopPointerInput displayPointer;
+bool verifyDisplayPointer = false;
+bool verifyCapsulePointer = false;
+bool displayPointerBound = false;
+
+int CapsuleTargetFrames(const SdgoGameTestContextV1* context, unsigned& phase) {
+    const auto capture=[&](const wchar_t* name) {
+        return quietGraphics.CaptureNextFrame((sdgo_test::directory+name).c_str());
+    };
+    switch (phase) {
+        case 0:
+            if(!capture(L"\\capsule-target.bmp"))return SDGO_GAME_TEST_FAIL;
+            break;
+        case 1: {
+            const HRESULT result=quietGraphics.CaptureFrameResult();
+            if(result==E_PENDING)return SDGO_GAME_TEST_WAIT;
+            context->Assert(SUCCEEDED(result),"the native capsule page was actually rendered");
+            if(FAILED(result))return SDGO_GAME_TEST_FAIL;
+            if(!verifyCapsulePointer)return SDGO_GAME_TEST_PASS;
+            if(!displayPointerBound)return SDGO_GAME_TEST_FAIL;
+            // Native next-page button in the unchanged 1024x768 capsule layout.
+            if(!displayPointer.MoveToDesignPoint(878,463))return SDGO_GAME_TEST_WAIT;
+            break;
+        }
+        case 2: displayPointer.SetLeftButton(true);break;
+        case 3: displayPointer.SetLeftButton(false);break;
+        case 4:
+            if(!capture(L"\\capsule-target-next.bmp"))return SDGO_GAME_TEST_FAIL;
+            break;
+        default: {
+            const HRESULT result=quietGraphics.CaptureFrameResult();
+            if(result==E_PENDING)return SDGO_GAME_TEST_WAIT;
+            displayPointer.Clear();
+            context->Assert(SUCCEEDED(result),"capture the native capsule page following the raw pointer click");
+            return SUCCEEDED(result) ? SDGO_GAME_TEST_PASS : SDGO_GAME_TEST_FAIL;
+        }
+    }
+    ++phase;
+    return SDGO_GAME_TEST_WAIT;
+}
+
 int __cdecl EarlyNavigation(const SdgoGameTestContextV1* context) {
     enum Phase : uint32_t {
         kEnterTarget,
@@ -1754,10 +1795,12 @@ int __cdecl EarlyNavigation(const SdgoGameTestContextV1* context) {
     static uint32_t roomReadyTick=UINT32_MAX;
     static uint32_t leaveBaseline=0;
     static bool leaveIssued=false;
+    static unsigned capsuleFramePhase=0;
     if(!context->tick) {
         phase=kEnterTarget;previousObservation={};havePreviousObservation=false;
         capsuleBaseline=0;capsuleObserved=0;roomReadyTick=UINT32_MAX;
         leaveBaseline=0;leaveIssued=false;
+        capsuleFramePhase=0;
         roomRequested=startRequested=leaveRequested=endObserved=false;
         loadingNavigation.Reset();
         if(earlyNavigationTarget==LoadingNavigationActions::kCapsule) {
@@ -1846,6 +1889,10 @@ int __cdecl EarlyNavigation(const SdgoGameTestContextV1* context) {
                 context->Assert(nativeOwner,
                     "the early capsule load completed on this client's genuine native UI thread");
                 if(!nativeOwner)return SDGO_GAME_TEST_FAIL;
+                if(captureNativeFrames) {
+                    const int captured=CapsuleTargetFrames(context,capsuleFramePhase);
+                    if(captured!=SDGO_GAME_TEST_PASS)return captured;
+                }
             }
             phase=kRecoverPage;
         }
@@ -6456,10 +6503,6 @@ void AppendUnitPresentations() {
     plannedCases.insert(plannedCases.end(),std::begin(unitPresentationCases)+2,std::end(unitPresentationCases));
 }
 std::vector<SdgoGameTestCaseV1> capturedOriginalCases,capturedCases;
-ShopPointerInput displayPointer;
-bool verifyDisplayPointer = false;
-bool displayPointerBound = false;
-
 int ProbeDisplayPointer(const SdgoGameTestContextV1* context) {
     static unsigned phase = 0;
     if (!displayPointerBound) {
@@ -6544,8 +6587,11 @@ void WrapNativeCaptures() {
     const bool observeDisplay = GetModuleHandleW(L"native_display.dll") != nullptr;
     // Keep virtual input scoped to the standalone menu probe for its whole lifetime.
     verifyDisplayPointer = observeDisplay && bootstrapOnly;
+    verifyCapsulePointer = observeDisplay && captureNativeFrames &&
+        earlyNavigationTarget == LoadingNavigationActions::kCapsule;
     if (!captureNativeFrames && !verifyDisplayPointer) return;
-    if (verifyDisplayPointer) displayPointerBound = displayPointer.Install(sdgo_test::api, sdgo_test::mod);
+    if (verifyDisplayPointer || verifyCapsulePointer)
+        displayPointerBound = displayPointer.Install(sdgo_test::api, sdgo_test::mod);
     capturedOriginalCases.assign(provider.cases,provider.cases+provider.count);
     capturedCases=capturedOriginalCases;
     // Login/bootstrap can finish before the native renderer starts presenting.

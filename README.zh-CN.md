@@ -80,7 +80,7 @@
 | 功能 | 简介 |
 |---|---|
 | [FPS 上限](docs/fps-limit.zh-CN.md) <!-- catalog: `fps_limit` --> | 提高渲染帧率上限，保留原生游戏速度 |
-| [原生无边框显示](docs/native-display.zh-CN.md) <!-- catalog: `native_display` --> | **Beta** · 战斗按宽屏分辨率渲染，菜单按原比例放大，可在本地预览并导出 PNG |
+| [原生无边框显示](docs/native-display.zh-CN.md) <!-- catalog: `native_display` --> | **Beta** · 宽屏战斗渲染、独立 HUD 缩放与本地图集应用 |
 | [机库管理](docs/hangar-manager.zh-CN.md) <!-- catalog: `hangar_manager` --> | 在机体管理页整理机库、预览并兑换重复机体，结果当场刷新、无需重新登录，支持导入机体 |
 | [保管库一键领取](docs/storage-claim.zh-CN.md) <!-- catalog: `storage_claim` --> | 保管库页内确认一次，领取当前页签全部分页的物品或礼物，等待原生到账与列表请求完成后继续 |
 | [自动机库容量](docs/hangar-capacity.zh-CN.md) <!-- catalog: `hangar_capacity` --> | 登录时把每个账号的机库保障到至少 1200 格（WorldServer） |

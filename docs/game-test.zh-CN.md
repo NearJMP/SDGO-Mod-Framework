@@ -329,6 +329,10 @@ Grid（`6`）和 Tag（`7`）会通过原生业务切换 VS 频道，并要求�
 `room` 会创建并进入真实三维等候室，核对房主、管理器、主状态和模型，再走原生路径离开；只打开房间列表不够。
 之后继续常规机体页面检查。
 
+在封存的扭蛋早期导航场景中，`capture_frames=true` 会在实际原生页面呈现后保存
+`capsule-target.bmp`。启用原生无边框显示的场景还会通过隔离的原生鼠标输入点击下一页，
+并保存 `capsule-target-next.bmp`，可对照页码、图集边界和点击位置。
+
 初始库存尚未完成的窗口使用密封配置 `unit_scenario={"schema":1,"early_navigation_before_inventory":"capsule"}`，
 同样配合 `pages_only=True` 和已有出击机体 UID。目标可选 `catalog`、`capsule`、`room` 或 `management`，不能与登录完成后的
 `early_navigation` 混用。该场景在 onboarding 内调用真实已启用控件，并要求点击时原生 `CUnitInfo+0x20` 尚未置位。

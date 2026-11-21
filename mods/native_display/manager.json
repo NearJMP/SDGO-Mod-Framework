@@ -5,9 +5,9 @@
   "title": "原生无边框显示",
   "category": "gameplay",
   "hosts": ["client"],
-  "description": "为战斗选择实际渲染分辨率。分辨率大于显示器时，画面等比缩到窗口内。菜单和大厅沿用原有 4:3 画布。",
+  "description": "为战斗选择渲染分辨率和 HUD 大小。画面可等比适配窗口，也可在本地应用匹配游戏图集的 PNG。",
   "presentation": "configurable",
-  "mechanism": "复用客户端窗口和渲染设备。战斗按所选像素数渲染并等比呈现，鼠标坐标按各场景的原生画布换算。",
+  "mechanism": "复用客户端渲染和输入映射。战斗 HUD 独立缩放，本地图集保留原版裁剪范围、布局和点击区域。",
   "settings": [
     {
       "id": "resolution",
@@ -16,6 +16,18 @@
       "type": "choice",
       "default": "desktop",
       "options": ["desktop", "1080p", "1440p", "2160p"],
+      "file": "mod.ini",
+      "section": "settings",
+      "audience": "user",
+      "activation": "restart"
+    },
+    {
+      "id": "hud_scale",
+      "key": "HudScale",
+      "label": "战斗 HUD 大小",
+      "type": "choice",
+      "default": "auto",
+      "options": ["auto", "off", "125%", "150%"],
       "file": "mod.ini",
       "section": "settings",
       "audience": "user",

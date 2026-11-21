@@ -61,6 +61,7 @@ def make_server(workspace, port=0):
                     limit = 176 if path=='/api/providers/operators/api/operators/import-preview' else 46 if path.startswith('/api/providers/units/') else 64 if path.startswith('/api/providers/capsules/') else 352 if path == '/api/import' else 16
                     if path=='/api/providers/shop/api/shop/import':limit=33
                     if path=='/api/providers/stickers/api/stickers/projects/import':limit=24
+                    if path=='/api/display/images':limit=44
                     if not 0 < length <= limit * 1024 * 1024: raise ValueError('请求大小无效')
                     body = json.loads(self.rfile.read(length))
                     if not isinstance(body, dict): raise ValueError('请求必须是 JSON 对象')
@@ -77,6 +78,10 @@ def make_server(workspace, port=0):
                         return self.response(200, image(workspace, path[len('/api/art/'):], (query.get('host') or [None])[0]), 'image/jpeg')
                     except LookupError as error:
                         return self.send_json(404, {'error': str(error)})
+                if path == '/api/display/images' and method in ('GET', 'POST'):
+                    from .display_artwork import change, entries
+                    host = workspace.host(query['host'][0])
+                    return self.send_json(200, entries(host) if method == 'GET' else change(host, body))
                 if method == 'GET' and path.startswith('/panels/'):
                     name = path[len('/panels/'):]
                     allowed={key + '.js' for key in workspace.providers}

@@ -7,6 +7,7 @@
 #include <cstring>
 #include <numeric>
 #include "sdgo/sdgo_api.h"
+#include "sprite_presentation.h"
 
 namespace {
 
@@ -86,6 +87,7 @@ void SelectCanvas(bool menu) {
     // The menu is laid out as a clipped 4:3 composition. The whole game
     // window presents that original composition at this fitted size.
     bounds = menu ? Centered(menuArea, Fit(menuArea, {menuWidth, menuHeight})) : displayBounds;
+    native_display::SetSpriteCanvas(RenderWidth(), RenderHeight(), !menu);
 }
 
 LONG CanvasCoordinate(LONG value, int logical, LONG actual) {
@@ -119,7 +121,11 @@ __declspec(naked) void MouseSite() {
 LRESULT CALLBACK RenderPointer(HWND window, UINT message, WPARAM keys, LPARAM position, UINT_PTR id, DWORD_PTR) {
     if (message == WM_NCDESTROY) {
         RemoveWindowSubclass(window, &RenderPointer, id);
-        if (window == gameWindow) { gameWindow = nullptr; renderer = nullptr; }
+        if (window == gameWindow) {
+            native_display::ReleaseArtwork();
+            gameWindow = nullptr;
+            renderer = nullptr;
+        }
     }
     if (window == gameWindow && message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) {
         POINT point{GET_X_LPARAM(position), GET_Y_LPARAM(position)};
@@ -231,8 +237,11 @@ SDGO_MOD_ENTRY {
     else if (!strcmp(value, "1440p")) preset = {2560, 1440};
     else if (!strcmp(value, "2160p")) preset = {3840, 2160};
     else if (strcmp(value, "desktop")) return 0;
+    char hud[16]{};
+    api->SettingString(mod, "HudScale", "auto", hud, sizeof(hud));
     if (api->size < offsetof(SdgoApi, HookSite) + sizeof(api->HookSite) || !api->HookSite) return 0;
-    return api->HookSite(mod, "native_display.video_config", reinterpret_cast<void*>(&ConfigSite), &configReturn) &&
+    return native_display::InstallSprites(api, mod, hud) &&
+        api->HookSite(mod, "native_display.video_config", reinterpret_cast<void*>(&ConfigSite), &configReturn) &&
         api->HookSite(mod, "native_display.mouse_client_point", reinterpret_cast<void*>(&MouseSite), &mouseReturn) &&
         api->HookCode(mod, "native_display.renderer_init", reinterpret_cast<void*>(&Init), reinterpret_cast<void**>(&originalInit)) &&
         api->HookCode(mod, "native_display.renderer_change", reinterpret_cast<void*>(&Change), reinterpret_cast<void**>(&originalChange)) &&

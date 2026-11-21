@@ -3470,6 +3470,9 @@ def collect_hashes(root: Path, launcher_path: str = '') -> tuple[dict, dict]:
         if not folder.exists():continue
         for path in sorted(folder.rglob('*'),key=lambda item:item.as_posix().lower()):
             if path.is_file():bind(path,immutable)
+    artwork = root / 'sdgo/local-state/native-display/artwork'
+    for path in sorted(artwork.glob('*.png')):
+        bind(path, immutable)
     for name in ("config.xml", "閰嶇疆鏂囦欢.ini"):
         path = root / name
         if path.is_file():

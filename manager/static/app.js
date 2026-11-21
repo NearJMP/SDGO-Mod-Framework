@@ -205,7 +205,7 @@ async function showSettings(host,mod){
   guard=()=>{const pending=changed().length;return pending?'「'+data.contract.title+'」有 '+pending+' 项设置尚未保存。':'';};
   bar.append(status,discard,save);refresh();root.append(box,bar);
  }else{box.append(element('p',data.contract.presentation==='automatic_fix'?'这项修复自动工作，不需要设置。':'这个功能没有需要填写的设置，打开开关即可使用。','muted'));root.append(box);}
- if(mod==='native_display')root.append(imagePreview());
+ if(mod==='native_display')root.append(imagePreview(host,request));
  root.append(supportActions({host,mod}));
 }
 async function showProvider(id){
