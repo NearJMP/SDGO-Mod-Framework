@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <numeric>
 #include "sdgo/sdgo_api.h"
 
 namespace {
@@ -30,12 +31,27 @@ constexpr int menuHeight = 768;
 
 struct Size { int width, height; };
 Size preset{};
+Size battleRender{};
 RECT bounds{};
 RECT displayBounds{};
+RECT menuArea{};
 int Width(const RECT& rect) { return rect.right - rect.left; }
 int Height(const RECT& rect) { return rect.bottom - rect.top; }
-int RenderWidth() { return menuCanvas ? menuWidth : Width(displayBounds); }
-int RenderHeight() { return menuCanvas ? menuHeight : Height(displayBounds); }
+int RenderWidth() { return menuCanvas ? menuWidth : battleRender.width; }
+int RenderHeight() { return menuCanvas ? menuHeight : battleRender.height; }
+
+RECT Centered(const RECT& area, Size size) {
+    const LONG left = area.left + (Width(area) - size.width) / 2;
+    const LONG top = area.top + (Height(area) - size.height) / 2;
+    return {left, top, left + size.width, top + size.height};
+}
+
+Size Fit(const RECT& area, Size ratio) {
+    const int common = std::gcd(ratio.width, ratio.height);
+    const Size unit{ratio.width / common, ratio.height / common};
+    const int count = std::min(Width(area) / unit.width, Height(area) / unit.height);
+    return {unit.width * count, unit.height * count};
+}
 
 void __stdcall ObserveApplication(uint8_t* app) { application = app; }
 
@@ -54,30 +70,22 @@ bool SelectBounds(HWND window) {
     info.cbSize = sizeof(info);
     const HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
     if (!monitor || !GetMonitorInfoW(monitor, &info)) return false;
-    bounds = info.rcMonitor;
-    const int monitorWidth = Width(bounds), monitorHeight = Height(bounds);
-    if (preset.width && preset.width <= monitorWidth && preset.height <= monitorHeight) {
-        bounds.left += (monitorWidth - preset.width) / 2;
-        bounds.top += (monitorHeight - preset.height) / 2;
-        bounds.right = bounds.left + preset.width;
-        bounds.bottom = bounds.top + preset.height;
-    }
-    displayBounds = bounds;
-    return Width(bounds) >= menuWidth && Height(bounds) >= menuHeight &&
-        Width(bounds) <= 3840 && Height(bounds) <= 2160;
+    const RECT area = info.rcMonitor;
+    const Size desktop{Width(area), Height(area)};
+    if (desktop.width < menuWidth || desktop.height < menuHeight) return false;
+    battleRender = preset.width ? preset : desktop;
+    if (battleRender.width > 3840 || battleRender.height > 2160) return false;
+    const bool fits = battleRender.width <= desktop.width && battleRender.height <= desktop.height;
+    displayBounds = Centered(area, fits ? battleRender : Fit(area, battleRender));
+    menuArea = fits ? displayBounds : area;
+    return !IsRectEmpty(&displayBounds);
 }
 
 void SelectCanvas(bool menu) {
     menuCanvas = menu;
-    bounds = displayBounds;
-    if (!menu) return;
     // The menu is laid out as a clipped 4:3 composition. The whole game
     // window presents that original composition at this fitted size.
-    const int units = std::min(Width(bounds) / 4, Height(bounds) / 3);
-    bounds.left += (Width(bounds) - 4 * units) / 2;
-    bounds.top += (Height(bounds) - 3 * units) / 2;
-    bounds.right = bounds.left + 4 * units;
-    bounds.bottom = bounds.top + 3 * units;
+    bounds = menu ? Centered(menuArea, Fit(menuArea, {menuWidth, menuHeight})) : displayBounds;
 }
 
 LONG CanvasCoordinate(LONG value, int logical, LONG actual) {
@@ -85,13 +93,14 @@ LONG CanvasCoordinate(LONG value, int logical, LONG actual) {
     return static_cast<LONG>((product < 0 ? product - actual + 1 : product) / actual);
 }
 
-void __stdcall MapMenuPoint(HWND window, POINT* point) {
-    if (!gameWindow || window != gameWindow || !menuCanvas || !point) return;
+void __stdcall MapRenderPoint(HWND window, POINT* point) {
+    if (!gameWindow || window != gameWindow || !point) return;
     const DWORD error = GetLastError();
     RECT client{};
-    if (GetClientRect(window, &client) && client.right >= menuWidth && client.bottom >= menuHeight) {
-        point->x = CanvasCoordinate(point->x, menuWidth, client.right);
-        point->y = CanvasCoordinate(point->y, menuHeight, client.bottom);
+    if (GetClientRect(window, &client) && client.right > 0 && client.bottom > 0) {
+        const int width = RenderWidth(), height = RenderHeight();
+        if (client.right != width) point->x = CanvasCoordinate(point->x, width, client.right);
+        if (client.bottom != height) point->y = CanvasCoordinate(point->y, height, client.bottom);
     }
     SetLastError(error);
 }
@@ -101,22 +110,22 @@ __declspec(naked) void MouseSite() {
     __asm { pushad }
     __asm { push edi }
     __asm { push ebx }
-    __asm { call MapMenuPoint }
+    __asm { call MapRenderPoint }
     __asm { popad }
     __asm { popfd }
     __asm { jmp dword ptr [mouseReturn] }
 }
 
-LRESULT CALLBACK MenuPointer(HWND window, UINT message, WPARAM keys, LPARAM position, UINT_PTR id, DWORD_PTR) {
+LRESULT CALLBACK RenderPointer(HWND window, UINT message, WPARAM keys, LPARAM position, UINT_PTR id, DWORD_PTR) {
     if (message == WM_NCDESTROY) {
-        RemoveWindowSubclass(window, &MenuPointer, id);
+        RemoveWindowSubclass(window, &RenderPointer, id);
         if (window == gameWindow) { gameWindow = nullptr; renderer = nullptr; }
     }
-    if (menuCanvas && window == gameWindow && message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) {
+    if (window == gameWindow && message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) {
         POINT point{GET_X_LPARAM(position), GET_Y_LPARAM(position)};
         const bool screen = message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL;
         if (!screen || ScreenToClient(window, &point)) {
-            MapMenuPoint(window, &point);
+            MapRenderPoint(window, &point);
             if (!screen || ClientToScreen(window, &point)) position = MAKELPARAM(point.x, point.y);
         }
     }
@@ -170,13 +179,13 @@ BOOL WINAPI Position(HWND window, HWND after, int x, int y, int cx, int cy, UINT
 
 bool __fastcall Init(void* self, void*, HWND window, int w, int h, bool vsync, DWORD flags) {
     if (!application || Field<HWND>(0x3c) != window || !IsWindow(window) || !SelectBounds(window) ||
-        !SetWindowSubclass(window, &MenuPointer, 1, 0)) {
+        !SetWindowSubclass(window, &RenderPointer, 1, 0)) {
         hostApi->Log(ownerMod, SDGO_LOG_WARN, "native display could not bind the game window and a compatible monitor rectangle");
         return originalInit(self, window, w, h, vsync, flags);
     }
     SelectCanvas(true);
     if (!FillBounds(window, nullptr, SWP_NOACTIVATE | SWP_NOZORDER)) {
-        RemoveWindowSubclass(window, &MenuPointer, 1);
+        RemoveWindowSubclass(window, &RenderPointer, 1);
         return originalInit(self, window, w, h, vsync, flags);
     }
     gameWindow = window;
@@ -185,7 +194,7 @@ bool __fastcall Init(void* self, void*, HWND window, int w, int h, bool vsync, D
     if (initialized) {
         renderer = self;
         hostApi->Log(ownerMod, SDGO_LOG_INFO, "native display menu %dx%d in borderless %dx%d; battle preset %dx%d",
-            RenderWidth(), RenderHeight(), Width(bounds), Height(bounds), Width(displayBounds), Height(displayBounds));
+            RenderWidth(), RenderHeight(), Width(bounds), Height(bounds), battleRender.width, battleRender.height);
     }
     return initialized;
 }
